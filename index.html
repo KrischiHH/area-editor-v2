@@ -1,8 +1,9 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="de" class="theme-dark">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="ARea Editor v2 – WebAR Szenen erstellen und publizieren.">
     <title>ARea Editor v2</title>
     
     <link rel="stylesheet" href="styles.css">
@@ -15,71 +16,74 @@
         }
       }
     </script>
-    
 </head>
 <body>
 
-
-
-  <div id="drop-overlay">
-  <p>GLB-Modell(e) hier ablegen (Drag & Drop)</p>
-</div>
-<input type="file" id="asset-upload-input" accept=".glb,.gltf,.bin,.jpg,.jpeg,.png,.webp" multiple hidden>
-  
-  <div id="editor-ui">
-    <div id="viewport-container">
-      <canvas id="main-canvas"></canvas>
+    <div id="drop-overlay" role="dialog" aria-hidden="true">
+        <p>GLB-Modell(e) hier ablegen</p>
     </div>
     
-    <div id="sidebar">
-      <div id="hierarchy-panel">
-        <h2>Szene-Objekte</h2>
-        </div>
+    <input type="file" id="asset-upload-input" accept=".glb,.gltf,.bin,.jpg,.jpeg,.png,.webp" multiple hidden>
+
+    <div id="editor-layout">
         
-      <div id="properties-panel">
-        <h2>Eigenschaften</h2>
+        <main id="viewport-container">
+            <canvas id="main-canvas" aria-label="3D Vorschau der Szene"></canvas>
+        </main>
         
-        <div id="prop-content" style="display:none;">
-            <label>Name <input type="text" id="inp-name"></label>
-            
-            <div class="prop-group">
-                <label>Position</label>
-                <div class="vec3-input">
-                    <input type="number" id="inp-px" step="0.1" placeholder="X">
-                    <input type="number" id="inp-py" step="0.1" placeholder="Y">
-                    <input type="number" id="inp-pz" step="0.1" placeholder="Z">
+        <aside id="sidebar">
+            <header class="sidebar-header">
+                <h1>Szene</h1>
+                <button id="btnPublish" class="action-btn">☁ Publizieren</button>
+            </header>
+
+            <div id="publish-status" aria-live="polite"></div>
+
+            <section id="hierarchy-panel">
+                <h2>Objekte</h2>
+                <ul id="object-list">
+                    <li class="empty-state">Keine Objekte</li>
+                </ul>
+            </section>
+
+            <section id="properties-panel">
+                <h2>Eigenschaften</h2>
+                
+                <div id="prop-content" class="hidden">
+                    <div class="prop-row">
+                        <label for="inp-name">Name</label>
+                        <input type="text" id="inp-name">
+                    </div>
+                    
+                    <div class="prop-group">
+                        <span class="label-group">Position</span>
+                        <div class="vec3-input">
+                            <input type="number" id="inp-px" step="0.1" aria-label="Position X">
+                            <input type="number" id="inp-py" step="0.1" aria-label="Position Y">
+                            <input type="number" id="inp-pz" step="0.1" aria-label="Position Z">
+                        </div>
+                    </div>
+
+                    <div class="prop-group">
+                        <span class="label-group">Rotation (°)</span>
+                        <div class="vec3-input">
+                            <input type="number" id="inp-rx" step="15" aria-label="Rotation X">
+                            <input type="number" id="inp-ry" step="15" aria-label="Rotation Y">
+                            <input type="number" id="inp-rz" step="15" aria-label="Rotation Z">
+                        </div>
+                    </div>
+
+                    <div class="prop-group">
+                        <label for="inp-s">Skalierung</label>
+                        <input type="number" id="inp-s" step="0.1" value="1">
+                    </div>
                 </div>
-            </div>
+                
+                <p id="prop-empty" class="empty-state">Wähle ein Objekt aus.</p>
+            </section>
+        </aside>
+    </div>
 
-            <div class="prop-group">
-                <label>Rotation (°)</label>
-                <div class="vec3-input">
-                    <input type="number" id="inp-rx" step="5" placeholder="X">
-                    <input type="number" id="inp-ry" step="5" placeholder="Y">
-                    <input type="number" id="inp-rz" step="5" placeholder="Z">
-                </div>
-            </div>
-
-            <div class="prop-group">
-                <label>Skalierung</label>
-                <input type="number" id="inp-s" step="0.1" value="1">
-            </div>
-        </div>
-        
-        <div id="prop-empty" style="color: #888; font-size: 0.9em; padding: 10px;">
-            Kein Objekt ausgewählt.
-        </div>
-      </div>
-    
-    <form id="publish-form">
-      <input type="text" id="sceneIdInput" placeholder="Szene-ID (optional)">
-      <input type="password" id="publishKeyInput" placeholder="X-AREA-Key">
-      <button id="btnPublish" type="button">⬆ Publish</button>
-      <div id="publish-status"></div>
-    </form>
-    
-  </div>
-
-  <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/app.js"></script>
 </body>
 </html>
