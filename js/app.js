@@ -2,11 +2,11 @@
 
 import { SceneManager } from './SceneManager.js';
 import { PublishClient } from './PublishClient.js';
-import * as THREE from 'three'; // Für MathUtils
+import * as THREE from 'three'; 
 
 // --- Konfiguration ---
 const CONFIG = {
-    WORKER_ORIGIN: 'https://area-publish-proxy.area-webar.workers.dev', // Proxy verwenden!
+    WORKER_ORIGIN: 'https://area-publish-proxy.area-webar.workers.dev', 
     VIEWER_BASE: 'https://area-viewer.pages.dev/surface-ar/area-viewer.html',
     PUBLISH_ENDPOINT: '/publish' 
 };
@@ -14,8 +14,21 @@ const CONFIG = {
 let sceneManager;
 const assetFiles = new Map(); 
 
-// ... (handleFiles, getFileExtension bleiben gleich) ...
+// Hilfsfunktionen
 function getFileExtension(filename) { return filename.split('.').pop().toLowerCase(); }
+
+// --- Key Management (Sicherer Umgang im Frontend) ---
+function getOrAskPublishKey() {
+    let key = localStorage.getItem('areaPublishKey');
+    if (!key) {
+        key = prompt("Bitte X-AREA-Key eingeben (wird lokal gespeichert):");
+        if (key) {
+            localStorage.setItem('areaPublishKey', key.trim());
+        }
+    }
+    return key;
+}
+
 function handleFiles(files) {
     for (const file of files) {
         const ext = getFileExtension(file.name);
@@ -23,6 +36,7 @@ function handleFiles(files) {
             const assetName = file.name.toLowerCase();
             assetFiles.set(assetName, file);
             console.log(`Asset hinzugefügt: ${assetName}`);
+            
             if (ext === 'glb' || ext === 'gltf') {
                 const blobUrl = URL.createObjectURL(file);
                 sceneManager.loadModel(blobUrl, assetName);
@@ -35,8 +49,8 @@ function init() {
     const canvas = document.getElementById('main-canvas');
     sceneManager = new SceneManager(canvas);
 
-    // --- UI REFERENCES ---
-    const listContainer = document.getElementById('hierarchy-panel');
+    // --- UI Referenzen ---
+    const objectList = document.getElementById('object-list');
     const propContent = document.getElementById('prop-content');
     const propEmpty = document.getElementById('prop-empty');
     
@@ -45,64 +59,64 @@ function init() {
     const inpRot = { x: document.getElementById('inp-rx'), y: document.getElementById('inp-ry'), z: document.getElementById('inp-rz') };
     const inpScale = document.getElementById('inp-s');
 
-    // --- UI LOGIC ---
-    
-    // 1. Szene-Liste aktualisieren
+    const btnPublish = document.getElementById('btnPublish');
+    const publishStatus = document.getElementById('publish-status');
+
+    // --- Logic: Szene Liste aktualisieren ---
     sceneManager.onSceneUpdate = () => {
-        // Leere die Liste (außer Header)
-        const header = listContainer.querySelector('h2');
-        listContainer.innerHTML = '';
-        listContainer.appendChild(header);
+        objectList.innerHTML = '';
         
+        if (sceneManager.editableObjects.length === 0) {
+            objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
+            return;
+        }
+
         sceneManager.editableObjects.forEach(obj => {
-            const item = document.createElement('div');
-            item.textContent = obj.name || 'Objekt';
-            item.style.padding = '8px';
-            item.style.cursor = 'pointer';
-            item.style.borderBottom = '1px solid #333';
+            const li = document.createElement('li');
+            li.textContent = obj.name || 'Unbenanntes Objekt';
             
-            // Highlighting für ausgewähltes Objekt
             if (sceneManager.selectedObject === obj) {
-                item.style.background = '#2a4a80';
-                item.style.fontWeight = 'bold';
+                li.classList.add('selected');
             }
             
-            item.onclick = () => sceneManager.selectObject(obj);
-            listContainer.appendChild(item);
+            li.onclick = () => sceneManager.selectObject(obj);
+            objectList.appendChild(li);
         });
     };
 
-    // 2. Eigenschaften anzeigen
+    // --- Logic: Eigenschaften anzeigen ---
     const updatePropsUI = () => {
         const obj = sceneManager.selectedObject;
         if (obj) {
-            propContent.style.display = 'block';
-            propEmpty.style.display = 'none';
+            propContent.classList.remove('hidden');
+            propEmpty.classList.add('hidden');
             
             inpName.value = obj.name;
             
+            // Position
             inpPos.x.value = obj.position.x.toFixed(2);
             inpPos.y.value = obj.position.y.toFixed(2);
             inpPos.z.value = obj.position.z.toFixed(2);
             
-            // Rotation in Grad umrechnen
+            // Rotation (Rad -> Deg)
             inpRot.x.value = THREE.MathUtils.radToDeg(obj.rotation.x).toFixed(1);
             inpRot.y.value = THREE.MathUtils.radToDeg(obj.rotation.y).toFixed(1);
             inpRot.z.value = THREE.MathUtils.radToDeg(obj.rotation.z).toFixed(1);
             
+            // Scale (uniform angenommen)
             inpScale.value = obj.scale.x.toFixed(2);
         } else {
-            propContent.style.display = 'none';
-            propEmpty.style.display = 'block';
+            propContent.classList.add('hidden');
+            propEmpty.classList.remove('hidden');
         }
-        // Liste auch aktualisieren (für Highlight)
-        sceneManager.onSceneUpdate(); 
+        // Liste neu rendern für Selection-Highlight
+        sceneManager.onSceneUpdate();
     };
 
     sceneManager.onSelectionChange = updatePropsUI;
-    sceneManager.onTransformChange = updatePropsUI; // Wenn Gizmo bewegt wird -> Update Inputs
+    sceneManager.onTransformChange = updatePropsUI;
 
-    // 3. Input Changes -> Szene aktualisieren
+    // --- Logic: Input -> Szene ---
     const applyTransform = () => {
         const p = { x: parseFloat(inpPos.x.value), y: parseFloat(inpPos.y.value), z: parseFloat(inpPos.z.value) };
         const r = { x: parseFloat(inpRot.x.value), y: parseFloat(inpRot.y.value), z: parseFloat(inpRot.z.value) };
@@ -110,16 +124,14 @@ function init() {
         
         sceneManager.updateSelectedTransform(p, r, s);
         if (sceneManager.selectedObject) sceneManager.selectedObject.name = inpName.value;
-        sceneManager.onSceneUpdate(); // Namen in Liste updaten
+        sceneManager.onSceneUpdate();
     };
 
     [inpName, inpScale, ...Object.values(inpPos), ...Object.values(inpRot)].forEach(el => {
         el.addEventListener('input', applyTransform);
     });
 
-
-    // ... (Rest: Drag & Drop, Publish Client Setup bleiben gleich) ...
-    // 2. Drag & Drop Listener
+    // --- Drag & Drop ---
     const dropOverlay = document.getElementById('drop-overlay');
     document.addEventListener('dragover', (e) => { e.preventDefault(); dropOverlay.classList.add('drag-active'); });
     document.addEventListener('dragleave', (e) => {
@@ -136,25 +148,25 @@ function init() {
         } else { handleFiles(e.dataTransfer.files); }
     });
 
-    // 3. Publish Client Setup
-    const publishKeyInput = document.getElementById('publishKeyInput');
-    const btnPublish = document.getElementById('btnPublish');
-    const publishStatus = document.getElementById('publish-status');
-    
-    try {
-        const storedKey = localStorage.getItem('areaPublishKey');
-        if (storedKey) publishKeyInput.value = storedKey;
-    } catch (e) {}
-
+    // --- PUBLISH LOGIC (Automatisiert) ---
     btnPublish.addEventListener('click', async () => {
-        const sceneId = document.getElementById('sceneIdInput').value.trim();
-        const publishKey = publishKeyInput.value.trim();
+        const publishKey = getOrAskPublishKey(); // Fragt nur beim ersten Mal!
 
-        if (!publishKey) { publishStatus.textContent = 'Fehler: X-AREA-Key fehlt.'; return; }
-        if (assetFiles.size === 0) { publishStatus.textContent = 'Fehler: Bitte Assets hinzufügen.'; return; }
+        if (!publishKey) {
+            publishStatus.textContent = 'Abbruch: Kein Key.';
+            return;
+        }
+        if (assetFiles.size === 0) {
+            publishStatus.textContent = 'Fehler: Szene leer.';
+            return;
+        }
 
-        publishStatus.textContent = 'Publiziere Szene...';
+        publishStatus.textContent = '⏳ Publiziere...';
         btnPublish.disabled = true;
+
+        // Automatische Scene-ID generieren
+        const timestamp = Date.now().toString(36);
+        const sceneId = `scene-${timestamp}`;
 
         try {
             const publishClient = new PublishClient(
@@ -163,16 +175,23 @@ function init() {
                 publishKey,
                 CONFIG.WORKER_ORIGIN
             );
+
             const sceneConfig = sceneManager.getSceneConfig();
             const assets = Array.from(assetFiles.values());
+            
             const result = await publishClient.publish(sceneId, sceneConfig, assets);
 
-            try { localStorage.setItem('areaPublishKey', publishKey); } catch (e) {}
-
-            publishStatus.innerHTML = `✅ Erfolg! <br> Scene-ID: <b>${result.sceneId}</b><br><a href="${result.viewerUrl}" target="_blank">Viewer öffnen</a>`;
+            publishStatus.innerHTML = `✅ <a href="${result.viewerUrl}" target="_blank">Viewer öffnen</a>`;
+            console.log("Publish Erfolg:", result);
         } catch (error) {
             console.error('Publish Error:', error);
-            publishStatus.textContent = '❌ Fehler: ' + error.message;
+            // Wenn Auth fehlschlägt, Key löschen damit User neu gefragt wird
+            if (error.message.includes('403') || error.message.includes('Forbidden')) {
+                localStorage.removeItem('areaPublishKey');
+                publishStatus.textContent = '❌ Falscher Key. Bitte erneut versuchen.';
+            } else {
+                publishStatus.textContent = '❌ Fehler: ' + error.message;
+            }
         } finally {
             btnPublish.disabled = false;
         }
