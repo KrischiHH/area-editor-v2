@@ -1,17 +1,51 @@
-// /js/app.js
+// /js/app.js (AKTUALISIERT)
 
 import { SceneManager } from './SceneManager.js';
 import { PublishClient } from './PublishClient.js';
 
-// --- Konfiguration (MUSS angepassst werden) ---
+// --- Konfiguration ---
 const CONFIG = {
-    // Deinen Worker-Origin hier eintragen (z.B. https://api.krischhh.dev)
-    WORKER_ORIGIN: 'https://area-publish.area-webar.workers.dev', 
+    // !!! WICHTIG: DIESEN PLATZHALTER ERSETZEN !!!
+    WORKER_ORIGIN: 'YOUR_CLOUDFLARE_WORKER_URL_HERE', 
     VIEWER_BASE: 'https://area-viewer.pages.dev/surface-ar/area-viewer.html',
-    PUBLISH_ENDPOINT: '/publish' // Endpunkt im Worker
+    PUBLISH_ENDPOINT: '/publish' 
 };
 
 let sceneManager;
+// [NEU] Zentrale Liste der zum Upload vorgesehenen Asset-Dateien
+const assetFiles = new Map(); // Speichert { fileName: FileObject }
+
+function getFileExtension(filename) {
+    return filename.split('.').pop().toLowerCase();
+}
+
+/**
+ * Verarbeitet eine Liste von File-Objekten aus Drag/Drop oder Input.
+ */
+function handleFiles(files) {
+    for (const file of files) {
+        const ext = getFileExtension(file.name);
+        
+        // Erlaubte Endungen basierend auf Worker-Konfig
+        if (['glb', 'gltf', 'usdz', 'jpg', 'jpeg', 'png', 'webp', 'bin'].includes(ext)) {
+            
+            // Dateiname für den Worker normalisieren (alle Kleinbuchstaben)
+            const assetName = file.name.toLowerCase();
+            
+            // Speichern
+            assetFiles.set(assetName, file);
+            console.log(`Asset hinzugefügt: ${assetName}`);
+
+            // Wenn es ein 3D-Modell ist, lade es in die Szene
+            if (ext === 'glb' || ext === 'gltf') {
+                // Erstelle eine lokale Blob-URL, um die Datei direkt in three.js zu laden
+                const blobUrl = URL.createObjectURL(file);
+                sceneManager.loadModel(blobUrl, assetName);
+            }
+        }
+    }
+}
+
 
 function init() {
     const canvas = document.getElementById('main-canvas');
@@ -23,10 +57,47 @@ function init() {
     // 1. Scene Manager starten (3D-Umgebung)
     sceneManager = new SceneManager(canvas);
 
-    // 2. Publish Client Setup
-    const publishForm = document.getElementById('publish-form');
+    // 2. Drag & Drop Listener
+    const dropOverlay = document.getElementById('drop-overlay');
+    
+    document.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropOverlay.classList.add('drag-active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+        // Nur entfernen, wenn der Cursor das gesamte Dokument verlässt, 
+        // um Flackern zu vermeiden.
+        if (e.clientX === 0 || e.clientY === 0 || e.clientX === window.innerWidth || e.clientY === window.innerHeight) {
+            dropOverlay.classList.remove('drag-active');
+        }
+    });
+
+    dropOverlay.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropOverlay.classList.remove('drag-active');
+
+        if (e.dataTransfer.items) {
+            const files = [];
+            for (const item of e.dataTransfer.items) {
+                // Wir interessieren uns nur für Dateien
+                if (item.kind === 'file') {
+                    files.push(item.getAsFile());
+                }
+            }
+            handleFiles(files);
+        } else {
+            handleFiles(e.dataTransfer.files);
+        }
+    });
+
+
+    // 3. Publish Client Setup
     const btnPublish = document.getElementById('btnPublish');
     const publishStatus = document.getElementById('publish-status');
+    
+    // Den Dummy-Würfel entfernen, da wir jetzt Modelle hochladen
+    sceneManager.removeInitialObject();
 
     btnPublish.addEventListener('click', async () => {
         const sceneId = document.getElementById('sceneIdInput').value.trim();
@@ -35,6 +106,12 @@ function init() {
         if (!publishKey) {
             publishStatus.textContent = 'Fehler: X-AREA-Key fehlt.';
             return;
+        }
+
+        // Stelle sicher, dass Assets vorhanden sind
+        if (assetFiles.size === 0) {
+             publishStatus.textContent = 'Fehler: Bitte GLB-Modelle oder Assets per Drag & Drop hinzufügen.';
+             return;
         }
 
         publishStatus.textContent = 'Publiziere Szene...';
@@ -48,13 +125,11 @@ function init() {
                 CONFIG.WORKER_ORIGIN
             );
 
-            // --- V2 Publish Logik: Nur scene.json mit Asset-Referenzen ---
+            // 1. Szene-Konfiguration aus dem SceneManager holen
             const sceneConfig = sceneManager.getSceneConfig();
             
-            // TODO: In V2 müssten die hochgeladenen Assets hier als File-Objekte 
-            // gesammelt werden (z.B. aus einem Drop-Bereich).
-            // Vorerst senden wir nur die scene.json und KEINE Assets.
-            const assets = []; 
+            // 2. Assets-Array für den Upload erstellen
+            const assets = Array.from(assetFiles.values());
 
             const result = await publishClient.publish(sceneId, sceneConfig, assets);
 
