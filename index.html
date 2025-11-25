@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="de" class="theme-dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ARea Scene Editor V2 (by Gemini)</title>
+  
+  <link rel="stylesheet" href="styles.css"> 
+  
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.166.1/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.166.1/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="editor-ui">
+    <div id="viewport-container">
+      <canvas id="main-canvas"></canvas>
+    </div>
+    
+    <div id="sidebar">
+      <div id="hierarchy-panel">
+        <h2>Szene-Objekte</h2>
+        </div>
+      <div id="properties-panel">
+        <h2>Eigenschaften</h2>
+        </div>
+    </div>
+    
+    <form id="publish-form">
+      <input type="text" id="sceneIdInput" placeholder="Szene-ID (optional)">
+      <input type="password" id="publishKeyInput" placeholder="X-AREA-Key">
+      <button id="btnPublish" type="button">⬆ Publish</button>
+      <div id="publish-status"></div>
+    </form>
+    
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
