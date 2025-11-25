@@ -35,10 +35,41 @@
       <div id="hierarchy-panel">
         <h2>Szene-Objekte</h2>
         </div>
+        
       <div id="properties-panel">
         <h2>Eigenschaften</h2>
+        
+        <div id="prop-content" style="display:none;">
+            <label>Name <input type="text" id="inp-name"></label>
+            
+            <div class="prop-group">
+                <label>Position</label>
+                <div class="vec3-input">
+                    <input type="number" id="inp-px" step="0.1" placeholder="X">
+                    <input type="number" id="inp-py" step="0.1" placeholder="Y">
+                    <input type="number" id="inp-pz" step="0.1" placeholder="Z">
+                </div>
+            </div>
+
+            <div class="prop-group">
+                <label>Rotation (°)</label>
+                <div class="vec3-input">
+                    <input type="number" id="inp-rx" step="5" placeholder="X">
+                    <input type="number" id="inp-ry" step="5" placeholder="Y">
+                    <input type="number" id="inp-rz" step="5" placeholder="Z">
+                </div>
+            </div>
+
+            <div class="prop-group">
+                <label>Skalierung</label>
+                <input type="number" id="inp-s" step="0.1" value="1">
+            </div>
         </div>
-    </div>
+        
+        <div id="prop-empty" style="color: #888; font-size: 0.9em; padding: 10px;">
+            Kein Objekt ausgewählt.
+        </div>
+      </div>
     
     <form id="publish-form">
       <input type="text" id="sceneIdInput" placeholder="Szene-ID (optional)">
