@@ -142,16 +142,24 @@ export class SceneManager {
         const size = box.getSize(new THREE.Vector3());
         model.position.y -= center.y - (size.y / 2); 
         
-        // [NEU] Animationslogik hinzufügen
+        // [MODIFIED] Robustere Animationslogik
         if (gltf.animations && gltf.animations.length) {
-            const mixer = new THREE.AnimationMixer(model);
-            this.mixers.push(mixer); // Mixer zur Liste hinzufügen
+            // Finde den richtigen Root für den Mixer:
+            // Wenn das Modell ein Skelett hat, ist das der Mixer-Root.
+            // Andernfalls verwenden wir das geladene Modell.
+            const mixerRoot = model.getObjectByName('Armature') || model; 
+
+            const mixer = new THREE.AnimationMixer(mixerRoot);
+            this.mixers.push(mixer); 
             
             // Starte die erste gefundene Animation im GLB
             const clip = gltf.animations[0];
             const action = mixer.clipAction(clip);
             action.play();
-            console.log(`Animation gestartet: ${clip.name || 'Clip 0'} (${gltf.animations.length} Clips gefunden)`);
+            
+            console.log(`Animation gestartet: ${clip.name || 'Clip 0'} (${gltf.animations.length} Clips gefunden). Mixer auf Root: ${mixerRoot.name || 'Scene Root'}`);
+        } else {
+             console.log(`Keine Animationen im GLB ${assetName} gefunden.`);
         }
         
         this.scene.add(model);
