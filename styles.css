@@ -20,6 +20,12 @@ body, html {
     height: 100%;
 }
 
+.vec3-input { display: flex; gap: 5px; }
+.vec3-input input { width: 100%; }
+.prop-group { margin-bottom: 10px; }
+label { display: block; font-size: 0.85em; color: #ccc; margin-bottom: 3px; }
+input { background: #222; border: 1px solid #444; color: white; padding: 4px; border-radius: 4px; }
+
 #main-canvas {
     display: block;
     width: 100%;
