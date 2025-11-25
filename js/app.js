@@ -6,7 +6,7 @@ import { PublishClient } from './PublishClient.js';
 // --- Konfiguration (MUSS angepassst werden) ---
 const CONFIG = {
     // Deinen Worker-Origin hier eintragen (z.B. https://api.krischhh.dev)
-    WORKER_ORIGIN: 'YOUR_CLOUDFLARE_WORKER_URL_HERE', 
+    WORKER_ORIGIN: 'https://area-publish.area-webar.workers.dev', 
     VIEWER_BASE: 'https://area-viewer.pages.dev/surface-ar/area-viewer.html',
     PUBLISH_ENDPOINT: '/publish' // Endpunkt im Worker
 };
