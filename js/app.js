@@ -1,4 +1,4 @@
-// /js/app.js (AKTUALISIERT)
+// /js/app.js (AKTUALISIERT für Key-Automation)
 
 import { SceneManager } from './SceneManager.js';
 import { PublishClient } from './PublishClient.js';
@@ -12,8 +12,7 @@ const CONFIG = {
 };
 
 let sceneManager;
-// [NEU] Zentrale Liste der zum Upload vorgesehenen Asset-Dateien
-const assetFiles = new Map(); // Speichert { fileName: FileObject }
+const assetFiles = new Map(); 
 
 function getFileExtension(filename) {
     return filename.split('.').pop().toLowerCase();
@@ -26,19 +25,12 @@ function handleFiles(files) {
     for (const file of files) {
         const ext = getFileExtension(file.name);
         
-        // Erlaubte Endungen basierend auf Worker-Konfig
         if (['glb', 'gltf', 'usdz', 'jpg', 'jpeg', 'png', 'webp', 'bin'].includes(ext)) {
-            
-            // Dateiname für den Worker normalisieren (alle Kleinbuchstaben)
             const assetName = file.name.toLowerCase();
-            
-            // Speichern
             assetFiles.set(assetName, file);
             console.log(`Asset hinzugefügt: ${assetName}`);
 
-            // Wenn es ein 3D-Modell ist, lade es in die Szene
             if (ext === 'glb' || ext === 'gltf') {
-                // Erstelle eine lokale Blob-URL, um die Datei direkt in three.js zu laden
                 const blobUrl = URL.createObjectURL(file);
                 sceneManager.loadModel(blobUrl, assetName);
             }
@@ -57,7 +49,7 @@ function init() {
     // 1. Scene Manager starten (3D-Umgebung)
     sceneManager = new SceneManager(canvas);
 
-    // 2. Drag & Drop Listener
+    // 2. Drag & Drop Listener (Logik bleibt gleich)
     const dropOverlay = document.getElementById('drop-overlay');
     
     document.addEventListener('dragover', (e) => {
@@ -66,8 +58,6 @@ function init() {
     });
 
     document.addEventListener('dragleave', (e) => {
-        // Nur entfernen, wenn der Cursor das gesamte Dokument verlässt, 
-        // um Flackern zu vermeiden.
         if (e.clientX === 0 || e.clientY === 0 || e.clientX === window.innerWidth || e.clientY === window.innerHeight) {
             dropOverlay.classList.remove('drag-active');
         }
@@ -80,7 +70,6 @@ function init() {
         if (e.dataTransfer.items) {
             const files = [];
             for (const item of e.dataTransfer.items) {
-                // Wir interessieren uns nur für Dateien
                 if (item.kind === 'file') {
                     files.push(item.getAsFile());
                 }
@@ -92,23 +81,34 @@ function init() {
     });
 
 
-    // 3. Publish Client Setup
+    // 3. Publish Client Setup & KEY AUTOMATION
+    const publishKeyInput = document.getElementById('publishKeyInput');
     const btnPublish = document.getElementById('btnPublish');
     const publishStatus = document.getElementById('publish-status');
     
-    // Den Dummy-Würfel entfernen, da wir jetzt Modelle hochladen
     sceneManager.removeInitialObject();
+
+    // 🔑 NEU: Versuche, den Key aus Local Storage zu laden
+    try {
+        const storedKey = localStorage.getItem('areaPublishKey');
+        if (storedKey) {
+            publishKeyInput.value = storedKey;
+            console.log("Publish Key aus Local Storage geladen.");
+        }
+    } catch (e) {
+        console.warn("Konnte nicht auf Local Storage zugreifen.", e);
+    }
+
 
     btnPublish.addEventListener('click', async () => {
         const sceneId = document.getElementById('sceneIdInput').value.trim();
-        const publishKey = document.getElementById('publishKeyInput').value.trim();
+        const publishKey = publishKeyInput.value.trim(); // Key wird hier aus dem Feld geholt
 
         if (!publishKey) {
             publishStatus.textContent = 'Fehler: X-AREA-Key fehlt.';
             return;
         }
 
-        // Stelle sicher, dass Assets vorhanden sind
         if (assetFiles.size === 0) {
              publishStatus.textContent = 'Fehler: Bitte GLB-Modelle oder Assets per Drag & Drop hinzufügen.';
              return;
@@ -125,13 +125,19 @@ function init() {
                 CONFIG.WORKER_ORIGIN
             );
 
-            // 1. Szene-Konfiguration aus dem SceneManager holen
             const sceneConfig = sceneManager.getSceneConfig();
-            
-            // 2. Assets-Array für den Upload erstellen
             const assets = Array.from(assetFiles.values());
 
             const result = await publishClient.publish(sceneId, sceneConfig, assets);
+
+            // 🔑 NEU: Key bei Erfolg in Local Storage speichern
+            try {
+                localStorage.setItem('areaPublishKey', publishKey);
+                console.log("Publish Key erfolgreich in Local Storage gespeichert.");
+            } catch (e) {
+                console.warn("Konnte Key nicht in Local Storage speichern.", e);
+            }
+
 
             publishStatus.innerHTML = `✅ Erfolg! <br> Scene-ID: <b>${result.sceneId}</b><br>
                 <a href="${result.viewerUrl}" target="_blank">Viewer öffnen</a>`;
