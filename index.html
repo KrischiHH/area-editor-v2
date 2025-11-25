@@ -1,89 +1,119 @@
 <!DOCTYPE html>
 <html lang="de" class="theme-dark">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="ARea Editor v2 – WebAR Szenen erstellen und publizieren.">
-    <title>ARea Editor v2</title>
-    
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="ARea Editor v2 – WebAR Szenen erstellen und publizieren.">
+  <title>ARea Editor v2</title>
 
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-        }
+  <link rel="stylesheet" href="styles.css">
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
       }
-    </script>
+    }
+  </script>
 </head>
 <body>
 
-    <div id="drop-overlay" role="dialog" aria-hidden="true">
-        <p>GLB-Modell(e) hier ablegen</p>
-    </div>
-    
-    <input type="file" id="asset-upload-input" accept=".glb,.gltf,.bin,.jpg,.jpeg,.png,.webp" multiple hidden>
+  <div id="drop-overlay" role="dialog" aria-hidden="true">
+    <p>GLB-Modell(e) hier ablegen</p>
+  </div>
 
-    <div id="editor-layout">
-        
-        <main id="viewport-container">
-            <canvas id="main-canvas" aria-label="3D Vorschau der Szene"></canvas>
-        </main>
-        
-        <aside id="sidebar">
-            <header class="sidebar-header">
-                <h1>Szene</h1>
-                <button id="btnPublish" class="action-btn">☁ Publizieren</button>
-            </header>
+  <input
+    type="file"
+    id="asset-upload-input"
+    accept=".glb,.gltf,.usdz,.bin,.jpg,.jpeg,.png,.webp,.mp3,.ogg,.m4a,.mp4,.webm"
+    multiple
+    hidden>
 
-            <div id="publish-status" aria-live="polite"></div>
+  <div id="editor-layout">
+    <main id="viewport-container">
+      <canvas id="main-canvas" aria-label="3D Vorschau der Szene"></canvas>
+    </main>
 
-            <section id="hierarchy-panel">
-                <h2>Objekte</h2>
-                <ul id="object-list">
-                    <li class="empty-state">Keine Objekte</li>
-                </ul>
-            </section>
+    <aside id="sidebar">
+      <header class="sidebar-header">
+        <h1>Szene</h1>
+        <button id="btnPublish" class="action-btn">☁ Publizieren</button>
+      </header>
 
-            <section id="properties-panel">
-                <h2>Eigenschaften</h2>
-                
-                <div id="prop-content" class="hidden">
-                    <div class="prop-row">
-                        <label for="inp-name">Name</label>
-                        <input type="text" id="inp-name">
-                    </div>
-                    
-                    <div class="prop-group">
-                        <span class="label-group">Position</span>
-                        <div class="vec3-input">
-                            <input type="number" id="inp-px" step="0.1" aria-label="Position X">
-                            <input type="number" id="inp-py" step="0.1" aria-label="Position Y">
-                            <input type="number" id="inp-pz" step="0.1" aria-label="Position Z">
-                        </div>
-                    </div>
+      <div id="publish-status" aria-live="polite"></div>
 
-                    <div class="prop-group">
-                        <span class="label-group">Rotation (°)</span>
-                        <div class="vec3-input">
-                            <input type="number" id="inp-rx" step="15" aria-label="Rotation X">
-                            <input type="number" id="inp-ry" step="15" aria-label="Rotation Y">
-                            <input type="number" id="inp-rz" step="15" aria-label="Rotation Z">
-                        </div>
-                    </div>
+      <section id="hierarchy-panel">
+        <h2>Objekte</h2>
+        <ul id="object-list">
+          <li class="empty-state">Keine Objekte</li>
+        </ul>
+      </section>
 
-                    <div class="prop-group">
-                        <label for="inp-s">Skalierung</label>
-                        <input type="number" id="inp-s" step="0.1" value="1">
-                    </div>
-                </div>
-                
-                <p id="prop-empty" class="empty-state">Wähle ein Objekt aus.</p>
-            </section>
-        </aside>
-    </div>
+      <section id="properties-panel">
+        <h2>Eigenschaften</h2>
 
-    <script type="module" src="js/app.js"></script>
+        <div id="prop-content" class="hidden">
+          <div class="prop-row">
+            <label for="inp-name">Name</label>
+            <input type="text" id="inp-name">
+          </div>
+
+          <div class="prop-group">
+            <span class="label-group">Position</span>
+            <div class="vec3-input">
+              <input type="number" id="inp-px" step="0.1" aria-label="Position X">
+              <input type="number" id="inp-py" step="0.1" aria-label="Position Y">
+              <input type="number" id="inp-pz" step="0.1" aria-label="Position Z">
+            </div>
+          </div>
+
+            <div class="prop-group">
+              <span class="label-group">Rotation (°)</span>
+              <div class="vec3-input">
+                <input type="number" id="inp-rx" step="15" aria-label="Rotation X">
+                <input type="number" id="inp-ry" step="15" aria-label="Rotation Y">
+                <input type="number" id="inp-rz" step="15" aria-label="Rotation Z">
+              </div>
+            </div>
+
+            <div class="prop-group">
+              <label for="inp-s">Skalierung</label>
+              <input type="number" id="inp-s" step="0.1" value="1">
+            </div>
+
+            <div class="prop-group">
+              <label for="inp-link-url">Link-URL (optional)</label>
+              <input type="url" id="inp-link-url" placeholder="https://…">
+            </div>
+        </div>
+
+        <p id="prop-empty" class="empty-state">Wähle ein Objekt aus.</p>
+      </section>
+
+      <section id="audio-panel">
+        <h2>Audio</h2>
+        <div class="prop-group">
+          <label for="sel-audio-file">Audio-Datei</label>
+          <select id="sel-audio-file">
+            <option value="">— kein Audio —</option>
+          </select>
+        </div>
+        <div class="prop-row">
+          <label><input type="checkbox" id="chk-audio-loop"> Loop</label>
+        </div>
+        <div class="prop-row">
+          <label for="inp-audio-delay">Delay (Sek.)</label>
+          <input type="number" id="inp-audio-delay" min="0" step="0.1" placeholder="0">
+        </div>
+        <div class="prop-row">
+          <label for="inp-audio-vol">Volume (0–1)</label>
+          <input type="number" id="inp-audio-vol" min="0" max="1" step="0.05" value="0.8">
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
