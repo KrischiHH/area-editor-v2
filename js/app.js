@@ -6,6 +6,7 @@ import * as THREE from 'three';
 
 // --- Konfiguration ---
 const CONFIG = {
+    // Der Proxy kümmert sich um den Key!
     WORKER_ORIGIN: 'https://area-publish-proxy.area-webar.workers.dev', 
     VIEWER_BASE: 'https://area-viewer.pages.dev/surface-ar/area-viewer.html',
     PUBLISH_ENDPOINT: '/publish' 
@@ -14,20 +15,7 @@ const CONFIG = {
 let sceneManager;
 const assetFiles = new Map(); 
 
-// Hilfsfunktionen
 function getFileExtension(filename) { return filename.split('.').pop().toLowerCase(); }
-
-// --- Key Management (Sicherer Umgang im Frontend) ---
-function getOrAskPublishKey() {
-    let key = localStorage.getItem('areaPublishKey');
-    if (!key) {
-        key = prompt("Bitte X-AREA-Key eingeben (wird lokal gespeichert):");
-        if (key) {
-            localStorage.setItem('areaPublishKey', key.trim());
-        }
-    }
-    return key;
-}
 
 function handleFiles(files) {
     for (const file of files) {
@@ -62,66 +50,49 @@ function init() {
     const btnPublish = document.getElementById('btnPublish');
     const publishStatus = document.getElementById('publish-status');
 
-    // --- Logic: Szene Liste aktualisieren ---
+    // --- Logic: UI Updates (Unverändert) ---
     sceneManager.onSceneUpdate = () => {
         objectList.innerHTML = '';
-        
         if (sceneManager.editableObjects.length === 0) {
             objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
             return;
         }
-
         sceneManager.editableObjects.forEach(obj => {
             const li = document.createElement('li');
             li.textContent = obj.name || 'Unbenanntes Objekt';
-            
-            if (sceneManager.selectedObject === obj) {
-                li.classList.add('selected');
-            }
-            
+            if (sceneManager.selectedObject === obj) li.classList.add('selected');
             li.onclick = () => sceneManager.selectObject(obj);
             objectList.appendChild(li);
         });
     };
 
-    // --- Logic: Eigenschaften anzeigen ---
     const updatePropsUI = () => {
         const obj = sceneManager.selectedObject;
         if (obj) {
             propContent.classList.remove('hidden');
             propEmpty.classList.add('hidden');
-            
             inpName.value = obj.name;
-            
-            // Position
             inpPos.x.value = obj.position.x.toFixed(2);
             inpPos.y.value = obj.position.y.toFixed(2);
             inpPos.z.value = obj.position.z.toFixed(2);
-            
-            // Rotation (Rad -> Deg)
             inpRot.x.value = THREE.MathUtils.radToDeg(obj.rotation.x).toFixed(1);
             inpRot.y.value = THREE.MathUtils.radToDeg(obj.rotation.y).toFixed(1);
             inpRot.z.value = THREE.MathUtils.radToDeg(obj.rotation.z).toFixed(1);
-            
-            // Scale (uniform angenommen)
             inpScale.value = obj.scale.x.toFixed(2);
         } else {
             propContent.classList.add('hidden');
             propEmpty.classList.remove('hidden');
         }
-        // Liste neu rendern für Selection-Highlight
         sceneManager.onSceneUpdate();
     };
 
     sceneManager.onSelectionChange = updatePropsUI;
     sceneManager.onTransformChange = updatePropsUI;
 
-    // --- Logic: Input -> Szene ---
     const applyTransform = () => {
         const p = { x: parseFloat(inpPos.x.value), y: parseFloat(inpPos.y.value), z: parseFloat(inpPos.z.value) };
         const r = { x: parseFloat(inpRot.x.value), y: parseFloat(inpRot.y.value), z: parseFloat(inpRot.z.value) };
         const s = parseFloat(inpScale.value);
-        
         sceneManager.updateSelectedTransform(p, r, s);
         if (sceneManager.selectedObject) sceneManager.selectedObject.name = inpName.value;
         sceneManager.onSceneUpdate();
@@ -131,7 +102,7 @@ function init() {
         el.addEventListener('input', applyTransform);
     });
 
-    // --- Drag & Drop ---
+    // --- Drag & Drop (Unverändert) ---
     const dropOverlay = document.getElementById('drop-overlay');
     document.addEventListener('dragover', (e) => { e.preventDefault(); dropOverlay.classList.add('drag-active'); });
     document.addEventListener('dragleave', (e) => {
@@ -148,14 +119,8 @@ function init() {
         } else { handleFiles(e.dataTransfer.files); }
     });
 
-    // --- PUBLISH LOGIC (Automatisiert) ---
+    // --- PUBLISH LOGIC (Vollautomatisch / Invisible Key) ---
     btnPublish.addEventListener('click', async () => {
-        const publishKey = getOrAskPublishKey(); // Fragt nur beim ersten Mal!
-
-        if (!publishKey) {
-            publishStatus.textContent = 'Abbruch: Kein Key.';
-            return;
-        }
         if (assetFiles.size === 0) {
             publishStatus.textContent = 'Fehler: Szene leer.';
             return;
@@ -164,15 +129,15 @@ function init() {
         publishStatus.textContent = '⏳ Publiziere...';
         btnPublish.disabled = true;
 
-        // Automatische Scene-ID generieren
+        // Automatische Scene-ID
         const timestamp = Date.now().toString(36);
         const sceneId = `scene-${timestamp}`;
 
         try {
+            // Instanz OHNE Key erstellen
             const publishClient = new PublishClient(
                 CONFIG.WORKER_ORIGIN + CONFIG.PUBLISH_ENDPOINT,
                 CONFIG.VIEWER_BASE,
-                publishKey,
                 CONFIG.WORKER_ORIGIN
             );
 
@@ -185,13 +150,7 @@ function init() {
             console.log("Publish Erfolg:", result);
         } catch (error) {
             console.error('Publish Error:', error);
-            // Wenn Auth fehlschlägt, Key löschen damit User neu gefragt wird
-            if (error.message.includes('403') || error.message.includes('Forbidden')) {
-                localStorage.removeItem('areaPublishKey');
-                publishStatus.textContent = '❌ Falscher Key. Bitte erneut versuchen.';
-            } else {
-                publishStatus.textContent = '❌ Fehler: ' + error.message;
-            }
+            publishStatus.textContent = '❌ Fehler: ' + error.message;
         } finally {
             btnPublish.disabled = false;
         }
