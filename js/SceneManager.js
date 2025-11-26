@@ -12,6 +12,7 @@ export class SceneManager {
     this.controls = null;
     this.transformControls = null;
     this.loader = new GLTFLoader();
+
     this.clock = new THREE.Clock();
     this.mixers = [];
     this.editableObjects = [];
@@ -20,19 +21,17 @@ export class SceneManager {
     this.onSceneUpdate = () => {};
     this.onSelectionChange = () => {};
     this.onTransformChange = () => {};
-
     this.audioConfig = null;
 
     this.init();
     this.animate();
   }
 
-  setAudioConfig(cfg){
-    this.audioConfig = cfg ? { ...cfg } : null;
-  }
+  setAudioConfig(cfg){ this.audioConfig = cfg ? { ...cfg } : null; }
 
   init(){
     const { width, height } = this.canvas.getBoundingClientRect();
+
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -64,6 +63,29 @@ export class SceneManager {
     this.scene.add(grid);
 
     window.addEventListener('resize', this.onWindowResize.bind(this));
+
+    // Click selection in 3D
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    this.canvas.addEventListener('pointerdown', (event) => {
+      if (this.transformControls.dragging) return;
+      const rect = this.canvas.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, this.camera);
+      const intersects = raycaster.intersectObjects(this.editableObjects, true);
+      if (intersects.length > 0) {
+        let target = intersects[0].object;
+        while (target.parent && !this.editableObjects.includes(target)) {
+          target = target.parent;
+        }
+        if (this.editableObjects.includes(target)) {
+          this.selectObject(target);
+        }
+      } else {
+        this.selectObject(null);
+      }
+    });
   }
 
   loadModel(url, assetName){
@@ -73,7 +95,6 @@ export class SceneManager {
       model.userData.isEditable = true;
       model.name = assetName;
 
-      // Auto-Center / Boden
       const box = new THREE.Box3().setFromObject(model);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
@@ -87,6 +108,7 @@ export class SceneManager {
 
       this.scene.add(model);
       this.editableObjects.push(model);
+
       this.onSceneUpdate();
       this.selectObject(model);
       URL.revokeObjectURL(url);
@@ -95,7 +117,7 @@ export class SceneManager {
 
   selectObject(object){
     this.selectedObject = object;
-    if (object && this.editableObjects.includes(object)){
+    if (object && this.editableObjects.includes(object)) {
       this.transformControls.attach(object);
     } else {
       this.transformControls.detach();
