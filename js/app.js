@@ -15,11 +15,111 @@ const VIDEO_EXT = ['mp4','webm'];
 
 function getFileExtension(filename){ return filename.split('.').pop().toLowerCase(); }
 
+function classifyAsset(file) {
+  const ext = getFileExtension(file.name);
+  if (['glb','gltf','usdz'].includes(ext)) return 'model';
+  if (['jpg','jpeg','png','webp'].includes(ext)) return 'image';
+  if (AUDIO_EXT.includes(ext)) return 'audio';
+  if (VIDEO_EXT.includes(ext)) return 'video';
+  return 'other';
+}
+
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  const units = ['B','KB','MB','GB'];
+  let i = 0;
+  let v = bytes;
+  while (v >= 1024 && i < units.length-1) { v /= 1024; i++; }
+  return v.toFixed(v < 10 ? 2 : 1) + ' ' + units[i];
+}
+
+function rebuildAssetList() {
+  const ul = document.getElementById('asset-list');
+  ul.innerHTML = '';
+  if (assetFiles.size === 0) {
+    ul.innerHTML = '<li class="empty">Noch keine Assets</li>';
+    return;
+  }
+  for (const [name, file] of assetFiles.entries()) {
+    const li = document.createElement('li');
+    const type = classifyAsset(file);
+
+    const title = document.createElement('div');
+    title.textContent = name;
+
+    const badge = document.createElement('span');
+    badge.className = 'asset-type';
+    badge.textContent = type;
+
+    const sizeEl = document.createElement('span');
+    sizeEl.style.fontSize = '10px';
+    sizeEl.style.color = 'var(--text-muted)';
+    sizeEl.textContent = formatBytes(file.size);
+
+    const actions = document.createElement('div');
+    actions.className = 'asset-actions';
+
+    if (type === 'audio') {
+      const btnAudio = document.createElement('button');
+      btnAudio.textContent = '▶';
+      btnAudio.title = 'Audio-Vorschau';
+      btnAudio.className = 'audio-preview-btn';
+      let audioObj = null;
+      btnAudio.onclick = () => {
+        if (!audioObj) {
+          audioObj = new Audio(URL.createObjectURL(file));
+          audioObj.onended = () => {
+            btnAudio.textContent = '▶';
+            btnAudio.classList.remove('playing');
+          };
+        }
+        if (audioObj.paused) {
+          audioObj.play().catch(e => console.warn('Audio preview failed', e));
+          btnAudio.textContent = '⏸';
+          btnAudio.classList.add('playing');
+        } else {
+          audioObj.pause();
+          btnAudio.textContent = '▶';
+          btnAudio.classList.remove('playing');
+        }
+      };
+      actions.appendChild(btnAudio);
+    }
+
+    const btnRemove = document.createElement('button');
+    btnRemove.textContent = '✕';
+    btnRemove.title = 'Asset entfernen';
+    btnRemove.onclick = () => {
+      assetFiles.delete(name);
+      rebuildAssetList();
+      if (AUDIO_EXT.includes(getFileExtension(name))) {
+        const sel = document.getElementById('sel-audio-file');
+        [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
+        if (sel.value === name) {
+          sel.value = '';
+          sel.dispatchEvent(new Event('input'));
+        }
+      }
+    };
+    actions.appendChild(btnRemove);
+
+    li.appendChild(title);
+    li.appendChild(badge);
+    li.appendChild(sizeEl);
+    li.appendChild(actions);
+    ul.appendChild(li);
+  }
+}
+
 function handleFiles(files){
   for (const file of files){
     const ext = getFileExtension(file.name);
     if (['glb','gltf','usdz','jpg','jpeg','png','webp','bin',...AUDIO_EXT,...VIDEO_EXT].includes(ext)){
       const assetName = file.name; // Original Case behalten
+      if (assetFiles.has(assetName)) {
+        const overwrite = confirm(`Datei "${assetName}" existiert schon. Überschreiben?`);
+        if (!overwrite) continue;
+      }
       assetFiles.set(assetName, file);
       console.log('Asset hinzugefügt:', assetName);
 
@@ -38,6 +138,7 @@ function handleFiles(files){
       }
     }
   }
+  rebuildAssetList();
 }
 
 function init(){
@@ -132,7 +233,7 @@ function init(){
     }
   });
 
-  // Drag & Drop
+  // Global Drop Overlay
   const dropOverlay = document.getElementById('drop-overlay');
   document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay.classList.add('drag-active'); });
   document.addEventListener('dragleave', e => {
@@ -143,15 +244,40 @@ function init(){
   dropOverlay.addEventListener('drop', e => {
     e.preventDefault(); dropOverlay.classList.remove('drag-active');
     if (e.dataTransfer.items){
-      const fs = [];
+      const fs=[]; for (const item of e.dataTransfer.items){ if (item.kind==='file') fs.push(item.getAsFile()); }
+      handleFiles(fs);
+    } else { handleFiles(e.dataTransfer.files); }
+  });
+
+  // Assets Panel: Button + Dropzone
+  const btnAddAssets   = document.getElementById('btnAddAssets');
+  const assetInput     = document.getElementById('asset-upload-input');
+  const assetDropzone  = document.getElementById('asset-dropzone');
+
+  btnAddAssets.addEventListener('click', () => assetInput.click());
+  assetInput.addEventListener('change', e => {
+    handleFiles(e.target.files);
+    e.target.value = '';
+  });
+
+  assetDropzone.addEventListener('dragover', e => {
+    e.preventDefault(); assetDropzone.classList.add('drag-active');
+  });
+  assetDropzone.addEventListener('dragleave', e => {
+    if (e.relatedTarget === null) assetDropzone.classList.remove('drag-active');
+  });
+  assetDropzone.addEventListener('drop', e => {
+    e.preventDefault(); assetDropzone.classList.remove('drag-active');
+    if (e.dataTransfer.items){
+      const fs=[];
       for (const item of e.dataTransfer.items){
         if (item.kind === 'file') fs.push(item.getAsFile());
       }
       handleFiles(fs);
-    } else {
-      handleFiles(e.dataTransfer.files);
-    }
+    } else { handleFiles(e.dataTransfer.files); }
   });
+
+  rebuildAssetList();
 
   // Publish
   btnPublish.addEventListener('click', async () => {
