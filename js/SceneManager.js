@@ -20,7 +20,7 @@ export class SceneManager {
     this.editableObjects = [];
     this.selectedObject = null;
 
-    // Map: Root Object -> { clips: AnimationClip[] }
+    // Root -> { clips: AnimationClip[] }
     this.modelAnimationMap = new Map();
 
     this.onSceneUpdate = () => {};
@@ -69,7 +69,7 @@ export class SceneManager {
 
     window.addEventListener('resize', this.onWindowResize.bind(this));
 
-    // Click selection in 3D
+    // Click selection
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     this.canvas.addEventListener('pointerdown', (event) => {
@@ -107,11 +107,10 @@ export class SceneManager {
       model.position.y -= center.y - (size.y / 2);
 
       if (gltf.animations && gltf.animations.length){
-        // Speichere Klone der Clips zur späteren Namensanpassung
         const clonedClips = gltf.animations.map(c => c.clone());
         this.modelAnimationMap.set(model, { clips: clonedClips });
 
-        // Optional: Mixer für Preview (nicht nötig für Export)
+        // Preview (optional)
         const mixer = new THREE.AnimationMixer(model);
         this.mixers.push(mixer);
         mixer.clipAction(clonedClips[0]).play();
@@ -156,6 +155,7 @@ export class SceneManager {
       THREE.MathUtils.degToRad(rotation.z)
     );
     if (scale) this.selectedObject.scale.setScalar(scale);
+    this.onTransformChange();
   }
 
   onWindowResize(){
@@ -211,7 +211,7 @@ export class SceneManager {
       : undefined;
 
     return {
-      meta: { title: 'ARea Scene V2', createdAt: new Date().toISOString() },
+      meta: { title: 'ARea Scene V2', createdAt: new Date().toISOString(), animationStrategy: 'merged' },
       model: modelEntry,
       audio,
       clickableNodes,
