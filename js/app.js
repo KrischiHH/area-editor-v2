@@ -1,11 +1,11 @@
 import { SceneManager } from './SceneManager.js';
-import * as THREE from 'three';
 import { PublishClient } from './PublishClient.js';
+import * as THREE from 'three';
 
 const CONFIG = {
   WORKER_ORIGIN: 'https://area-publish-proxy.area-webar.workers.dev',
-  PUBLISH_ENDPOINT: '/publish',
-  VIEWER_BASE: 'https://krischihh.github.io/area-viewer-v2/viewer.html'
+  VIEWER_BASE: 'https://krischihh.github.io/area-viewer-v2/viewer.html',
+  PUBLISH_ENDPOINT: '/publish'
 };
 
 let sceneManager;
@@ -115,7 +115,7 @@ function handleFiles(files){
   for (const file of files){
     const ext = getFileExtension(file.name);
     if (['glb','gltf','usdz','jpg','jpeg','png','webp','bin',...AUDIO_EXT,...VIDEO_EXT].includes(ext)){
-      const assetName = file.name;
+      const assetName = file.name; // Original Case behalten
       if (assetFiles.has(assetName)) {
         const overwrite = confirm(`Datei "${assetName}" existiert schon. Überschreiben?`);
         if (!overwrite) continue;
@@ -158,15 +158,14 @@ function init(){
   const btnPublish   = document.getElementById('btnPublish');
   const publishStatus= document.getElementById('publish-status');
 
+  // Audio UI
   const selAudioFile = document.getElementById('sel-audio-file');
   const chkAudioLoop = document.getElementById('chk-audio-loop');
   const inpAudioDelay= document.getElementById('inp-audio-delay');
   const inpAudioVol  = document.getElementById('inp-audio-vol');
 
-  const btnSnapFloor    = document.getElementById('btnSnapFloor');
-  const btnSnapAllFloor = document.getElementById('btnSnapAllFloor');
-
   const audioState   = { url:'', loop:false, delaySeconds:0, volume:0.8 };
+
   function syncAudio(){
     audioState.url = selAudioFile.value || '';
     audioState.loop = !!chkAudioLoop.checked;
@@ -182,16 +181,15 @@ function init(){
     objectList.innerHTML = '';
     if (sceneManager.editableObjects.length === 0){
       objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
-    } else {
-      sceneManager.editableObjects.forEach(obj => {
-        const li = document.createElement('li');
-        li.textContent = obj.name || 'Unbenanntes Objekt';
-        if (sceneManager.selectedObject === obj) li.classList.add('selected');
-        li.onclick = () => sceneManager.selectObject(obj);
-        objectList.appendChild(li);
-      });
+      return;
     }
-    updateSnapButtons();
+    sceneManager.editableObjects.forEach(obj => {
+      const li = document.createElement('li');
+      li.textContent = obj.name || 'Unbenanntes Objekt';
+      if (sceneManager.selectedObject === obj) li.classList.add('selected');
+      li.onclick = () => sceneManager.selectObject(obj);
+      objectList.appendChild(li);
+    });
   };
 
   const updatePropsUI = () => {
@@ -216,10 +214,7 @@ function init(){
     sceneManager.onSceneUpdate();
   };
 
-  sceneManager.onSelectionChange = () => {
-    updatePropsUI();
-    updateSnapButtons();
-  };
+  sceneManager.onSelectionChange = updatePropsUI;
   sceneManager.onTransformChange = updatePropsUI;
 
   function applyTransform(){
@@ -238,7 +233,7 @@ function init(){
     }
   });
 
-  // Drag&Drop Overlay
+  // Global Drop Overlay
   const dropOverlay = document.getElementById('drop-overlay');
   document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay.classList.add('drag-active'); });
   document.addEventListener('dragleave', e => {
@@ -284,52 +279,29 @@ function init(){
 
   rebuildAssetList();
 
-  // Snap-Buttons verdrahten
-  function updateSnapButtons(){
-    if (!btnSnapFloor) return;
-    btnSnapFloor.disabled = !sceneManager.selectedObject;
-  }
-  if (btnSnapFloor){
-    btnSnapFloor.addEventListener('click', () => {
-      if (sceneManager.selectedObject){
-        sceneManager.snapObjectToFloor(sceneManager.selectedObject);
-        sceneManager.onTransformChange();
-        sceneManager.onSceneUpdate();
-      }
-    });
-  }
-  if (btnSnapAllFloor){
-    btnSnapAllFloor.addEventListener('click', () => {
-      sceneManager.snapAllToFloor();
-    });
-  }
-
-  // Publizieren mit Sicherheits-Snap und PublishClient
+  // Publish
   btnPublish.addEventListener('click', async () => {
-    publishStatus.textContent = '';
     if (assetFiles.size === 0){
       publishStatus.textContent = 'Fehler: Szene leer.';
       return;
     }
-    sceneManager.snapAllToFloor();
-
-    const sceneId = `scene-${Date.now().toString(36)}`;
-    const viewerBase = CONFIG.VIEWER_BASE;
-    const publishEndpoint = CONFIG.WORKER_ORIGIN + CONFIG.PUBLISH_ENDPOINT;
-
     publishStatus.textContent = '⏳ Publiziere…';
     btnPublish.disabled = true;
-
+    const sceneId = `scene-${Date.now().toString(36)}`;
     try {
-      const client = new PublishClient(publishEndpoint, viewerBase, CONFIG.WORKER_ORIGIN);
+      const publishClient = new PublishClient(
+        CONFIG.WORKER_ORIGIN + CONFIG.PUBLISH_ENDPOINT,
+        CONFIG.VIEWER_BASE,
+        CONFIG.WORKER_ORIGIN
+      );
       const sceneConfig = sceneManager.getSceneConfig();
       const assets = Array.from(assetFiles.values());
-      const result = await client.publish(sceneId, sceneConfig, assets);
-      publishStatus.innerHTML = `✅ <a href="${result.viewerUrl}" target="_blank" rel="noopener">Viewer öffnen</a>`;
+      const result = await publishClient.publish(sceneId, sceneConfig, assets);
+      publishStatus.innerHTML = `✅ <a href="${result.viewerUrl}" target="_blank">Viewer öffnen</a>`;
       console.log('Publish Erfolg:', result);
-    } catch (err) {
+    } catch (err){
       console.error('Publish Error:', err);
-      publishStatus.textContent = '❌ Fehler: ' + (err?.message || String(err));
+      publishStatus.textContent = '❌ Fehler: ' + err.message;
     } finally {
       btnPublish.disabled = false;
     }
