@@ -13,7 +13,7 @@ export class SceneManager {
     this.editableObjects = [];
     this.selectedObject = null;
 
-    // Event-Hooks (werden in app.js gesetzt)
+    // Hooks (werden von app.js gesetzt)
     this.onSceneUpdate = () => {};
     this.onSelectionChange = () => {};
     this.onTransformChange = () => {};
@@ -25,7 +25,6 @@ export class SceneManager {
   handleResize(){
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
-    // Notfall: Falls Container (noch) 0 ist, versuche Fenstergröße
     const W = w || window.innerWidth;
     const H = h || window.innerHeight;
     this.camera.aspect = W/H;
@@ -43,8 +42,7 @@ export class SceneManager {
     if (!obj) return;
     const box = new THREE.Box3().setFromObject(obj);
     if (!Number.isFinite(box.min.y)) return;
-    // Toleranz: kleine Werte ignorieren
-    if (Math.abs(box.min.y) < 1e-5) return;
+    if (Math.abs(box.min.y) < 1e-5) return; // Toleranz
     obj.position.y -= box.min.y;
   }
 
@@ -90,17 +88,14 @@ export class SceneManager {
     const obj = this.selectedObject;
     if (!obj) return;
 
-    // Position
     if (Number.isFinite(position.x)) obj.position.x = position.x;
     if (Number.isFinite(position.y)) obj.position.y = position.y;
     if (Number.isFinite(position.z)) obj.position.z = position.z;
 
-    // Rotation (Grad → Rad)
     if (Number.isFinite(rotationDeg.x)) obj.rotation.x = THREE.MathUtils.degToRad(rotationDeg.x);
     if (Number.isFinite(rotationDeg.y)) obj.rotation.y = THREE.MathUtils.degToRad(rotationDeg.y);
     if (Number.isFinite(rotationDeg.z)) obj.rotation.z = THREE.MathUtils.degToRad(rotationDeg.z);
 
-    // Uniform-Skalierung
     if (Number.isFinite(scaleVal)) obj.scale.set(scaleVal, scaleVal, scaleVal);
 
     this.onTransformChange();
