@@ -2,7 +2,6 @@ import { SceneManager } from './SceneManager.js';
 import * as THREE from 'three';
 import { PublishClient } from './PublishClient.js';
 
-// Konfiguration für Publish-Client und Viewer-URL
 const CONFIG = {
   WORKER_ORIGIN: 'https://area-publish-proxy.area-webar.workers.dev',
   PUBLISH_ENDPOINT: '/publish',
@@ -285,7 +284,7 @@ function init(){
 
   rebuildAssetList();
 
-  // Neu: Snap-Buttons verdrahten
+  // Snap-Buttons verdrahten
   function updateSnapButtons(){
     if (!btnSnapFloor) return;
     btnSnapFloor.disabled = !sceneManager.selectedObject;
@@ -312,8 +311,6 @@ function init(){
       publishStatus.textContent = 'Fehler: Szene leer.';
       return;
     }
-
-    // Sicherheit: vor Publish alles auf Boden setzen
     sceneManager.snapAllToFloor();
 
     const sceneId = `scene-${Date.now().toString(36)}`;
@@ -328,8 +325,6 @@ function init(){
       const sceneConfig = sceneManager.getSceneConfig();
       const assets = Array.from(assetFiles.values());
       const result = await client.publish(sceneId, sceneConfig, assets);
-
-      // Zeige Viewer-Link
       publishStatus.innerHTML = `✅ <a href="${result.viewerUrl}" target="_blank" rel="noopener">Viewer öffnen</a>`;
       console.log('Publish Erfolg:', result);
     } catch (err) {
