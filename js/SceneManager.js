@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 export class SceneManager {
   constructor(canvas){
@@ -12,11 +13,15 @@ export class SceneManager {
     this.controls = null;
     this.transformControls = null;
     this.loader = new GLTFLoader();
+    this.exporter = new GLTFExporter();
 
     this.clock = new THREE.Clock();
     this.mixers = [];
     this.editableObjects = [];
     this.selectedObject = null;
+
+    // Map: Root Object -> { clips: AnimationClip[] }
+    this.modelAnimationMap = new Map();
 
     this.onSceneUpdate = () => {};
     this.onSelectionChange = () => {};
@@ -93,17 +98,23 @@ export class SceneManager {
       const model = gltf.scene;
       model.userData.assetUrl = assetName;
       model.userData.isEditable = true;
-      model.name = assetName;
+      model.name = this.makeUniqueName(assetName.replace(/\.(glb|gltf)$/i,''));
 
+      // Floor alignment
       const box = new THREE.Box3().setFromObject(model);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
       model.position.y -= center.y - (size.y / 2);
 
       if (gltf.animations && gltf.animations.length){
+        // Speichere Klone der Clips zur späteren Namensanpassung
+        const clonedClips = gltf.animations.map(c => c.clone());
+        this.modelAnimationMap.set(model, { clips: clonedClips });
+
+        // Optional: Mixer für Preview (nicht nötig für Export)
         const mixer = new THREE.AnimationMixer(model);
         this.mixers.push(mixer);
-        mixer.clipAction(gltf.animations[0]).play();
+        mixer.clipAction(clonedClips[0]).play();
       }
 
       this.scene.add(model);
@@ -113,6 +124,17 @@ export class SceneManager {
       this.selectObject(model);
       URL.revokeObjectURL(url);
     }, undefined, err => console.error(err));
+  }
+
+  makeUniqueName(base){
+    let name = base;
+    let i = 2;
+    const exists = () => this.editableObjects.some(o => o.name === name);
+    while (exists()) {
+      name = base + '_' + i;
+      i++;
+    }
+    return name;
   }
 
   selectObject(object){
@@ -166,6 +188,10 @@ export class SceneManager {
       }));
 
     const main = assets.find(a => a.url.toLowerCase().endsWith('.glb'));
+    let modelEntry = undefined;
+    if (main) {
+      modelEntry = { url: 'scene.glb' };
+    }
 
     const clickableNodes = this.editableObjects
       .filter(o => o.userData.linkUrl && o.userData.linkUrl.trim())
@@ -186,10 +212,54 @@ export class SceneManager {
 
     return {
       meta: { title: 'ARea Scene V2', createdAt: new Date().toISOString() },
-      model: main ? { url: main.url } : undefined,
+      model: modelEntry,
       audio,
       clickableNodes,
       assets
     };
+  }
+
+  buildMergedAnimationClip(){
+    const allTracks = [];
+    for (const [root, data] of this.modelAnimationMap.entries()) {
+      const rootName = root.name || root.uuid;
+      for (const clip of data.clips) {
+        for (const track of clip.tracks) {
+          let newName = track.name;
+          if (!newName.startsWith(rootName + '.') && !newName.startsWith(rootName + '/')) {
+            newName = rootName + '/' + newName;
+          }
+          const clonedTrack = track.clone();
+          clonedTrack.name = newName;
+          allTracks.push(clonedTrack);
+        }
+      }
+    }
+    if (!allTracks.length) return null;
+    return new THREE.AnimationClip('merged_all', -1, allTracks);
+  }
+
+  async exportMergedGlbBlob(){
+    return new Promise((resolve, reject) => {
+      const mergedClip = this.buildMergedAnimationClip();
+      const animations = mergedClip ? [mergedClip] : [];
+      this.exporter.parse(
+        this.scene,
+        gltf => {
+          try {
+            if (gltf instanceof ArrayBuffer) {
+              resolve(new Blob([gltf], { type: 'model/gltf-binary' }));
+            } else if (gltf && gltf.buffers) {
+              resolve(new Blob([JSON.stringify(gltf)], { type: 'application/json' }));
+            } else {
+              reject(new Error('Unbekanntes GLTF Exportformat'));
+            }
+          } catch(e){
+            reject(e);
+          }
+        },
+        { binary: true, animations }
+      );
+    });
   }
 }
