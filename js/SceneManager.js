@@ -13,7 +13,6 @@ export class SceneManager {
     this.editableObjects = [];
     this.selectedObject = null;
 
-    // Hooks (werden von app.js gesetzt)
     this.onSceneUpdate = () => {};
     this.onSelectionChange = () => {};
     this.onTransformChange = () => {};
@@ -37,16 +36,16 @@ export class SceneManager {
     this.renderer.render(this.scene, this.camera);
   }
 
-  // Neu: Objekt an Boden schnappen (minY → 0)
+  // Ergänzung: Objekt an Boden schnappen (minY → 0)
   snapObjectToFloor(obj){
     if (!obj) return;
     const box = new THREE.Box3().setFromObject(obj);
     if (!Number.isFinite(box.min.y)) return;
-    if (Math.abs(box.min.y) < 1e-5) return; // Toleranz
+    if (Math.abs(box.min.y) < 1e-5) return;
     obj.position.y -= box.min.y;
   }
 
-  // Neu: Alle bearbeitbaren Objekte schnappen
+  // Ergänzung: alle schnappen
   snapAllToFloor(){
     for (const o of this.editableObjects){
       this.snapObjectToFloor(o);
@@ -54,7 +53,7 @@ export class SceneManager {
     this.onSceneUpdate();
   }
 
-  // GLTF/GLB laden und automatisch auf Boden setzen
+  // Beim Laden automatisch Boden-Snap
   async loadModel(url, name){
     const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
     const loader = new GLTFLoader();
@@ -62,13 +61,9 @@ export class SceneManager {
     return new Promise((resolve, reject) => {
       loader.load(url, gltf => {
         const root = gltf.scene || gltf.scenes?.[0];
-        if (!root){
-          reject(new Error('GLTF ohne Szene'));
-          return;
-        }
+        if (!root){ reject(new Error('GLTF ohne Szene')); return; }
         root.name = name || 'Model';
 
-        // Automatischer Boden-Snap direkt nach dem Laden
         this.snapObjectToFloor(root);
 
         this.scene.add(root);
