@@ -1,4 +1,3 @@
-// Nur der Publish-Teil wurde erweitert (Merge). Oberer Teil aus deinem Stand belassen.
 import { SceneManager } from './SceneManager.js';
 import { PublishClient } from './PublishClient.js';
 import * as THREE from 'three';
@@ -234,7 +233,7 @@ function init(){
 
   rebuildAssetList();
 
-  // Publish (mit Merge)
+  // Publish (Merge)
   btnPublish.addEventListener('click', async () => {
     if (assetFiles.size === 0){
       publishStatus.textContent = 'Fehler: Szene leer.';
@@ -267,12 +266,10 @@ function init(){
       } else {
         sceneConfig.model.url = 'scene.glb';
       }
-      sceneConfig.meta = sceneConfig.meta || {};
-      sceneConfig.meta.animationStrategy = 'merged';
 
       const uploadAssets = [];
-      // Optional Originaldateien archivieren: originalAssets.forEach(f => uploadAssets.push(f));
-      // Hier nur das finale scene.glb zur Reduktion anhängen:
+      // Falls du original Assets archivieren willst:
+      // originalAssets.forEach(f => uploadAssets.push(f));
       const mergedFile = new File([mergedBlob], 'scene.glb', { type: 'model/gltf-binary' });
       uploadAssets.push(mergedFile);
 
