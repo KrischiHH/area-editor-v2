@@ -304,7 +304,7 @@ function init(){
     });
   }
 
-  // Publizieren: Sicherheits-Snap und PublishClient nutzen
+  // Publizieren mit Sicherheits-Snap und PublishClient
   btnPublish.addEventListener('click', async () => {
     publishStatus.textContent = '';
     if (assetFiles.size === 0){
