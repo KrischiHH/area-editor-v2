@@ -164,6 +164,9 @@ function init(){
   const inpAudioDelay= document.getElementById('inp-audio-delay');
   const inpAudioVol  = document.getElementById('inp-audio-vol');
 
+  const btnSnapFloor    = document.getElementById('btnSnapFloor');
+  const btnSnapAllFloor = document.getElementById('btnSnapAllFloor');
+
   const audioState   = { url:'', loop:false, delaySeconds:0, volume:0.8 };
 
   function syncAudio(){
@@ -181,15 +184,16 @@ function init(){
     objectList.innerHTML = '';
     if (sceneManager.editableObjects.length === 0){
       objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
-      return;
+    } else {
+      sceneManager.editableObjects.forEach(obj => {
+        const li = document.createElement('li');
+        li.textContent = obj.name || 'Unbenanntes Objekt';
+        if (sceneManager.selectedObject === obj) li.classList.add('selected');
+        li.onclick = () => sceneManager.selectObject(obj);
+        objectList.appendChild(li);
+      });
     }
-    sceneManager.editableObjects.forEach(obj => {
-      const li = document.createElement('li');
-      li.textContent = obj.name || 'Unbenanntes Objekt';
-      if (sceneManager.selectedObject === obj) li.classList.add('selected');
-      li.onclick = () => sceneManager.selectObject(obj);
-      objectList.appendChild(li);
-    });
+    updateSnapButtons();
   };
 
   const updatePropsUI = () => {
@@ -214,7 +218,10 @@ function init(){
     sceneManager.onSceneUpdate();
   };
 
-  sceneManager.onSelectionChange = updatePropsUI;
+  sceneManager.onSelectionChange = () => {
+    updatePropsUI();
+    updateSnapButtons();
+  };
   sceneManager.onTransformChange = updatePropsUI;
 
   function applyTransform(){
@@ -279,12 +286,37 @@ function init(){
 
   rebuildAssetList();
 
+  // NEU: Snap-Buttons verdrahten
+  function updateSnapButtons(){
+    if (!btnSnapFloor) return;
+    btnSnapFloor.disabled = !sceneManager.selectedObject;
+  }
+  if (btnSnapFloor){
+    btnSnapFloor.addEventListener('click', () => {
+      if (sceneManager.selectedObject){
+        sceneManager.snapObjectToFloor(sceneManager.selectedObject);
+        sceneManager.onTransformChange();
+        sceneManager.onSceneUpdate();
+      }
+    });
+  }
+  if (btnSnapAllFloor){
+    btnSnapAllFloor.addEventListener('click', () => {
+      sceneManager.snapAllToFloor();
+    });
+  }
+
   // Publish
   btnPublish.addEventListener('click', async () => {
     if (assetFiles.size === 0){
       publishStatus.textContent = 'Fehler: Szene leer.';
       return;
     }
+    // Sicherheit: Alle Objekte vor dem Publizieren auf den Boden schnappen
+    if (typeof sceneManager.snapAllToFloor === 'function') {
+      sceneManager.snapAllToFloor();
+    }
+
     publishStatus.textContent = '⏳ Publiziere…';
     btnPublish.disabled = true;
     const sceneId = `scene-${Date.now().toString(36)}`;
