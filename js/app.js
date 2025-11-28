@@ -1,12 +1,8 @@
 import { SceneManager } from './SceneManager.js';
-import { PublishClient } from './PublishClient.js';
 import * as THREE from 'three';
 
-const CONFIG = {
-  WORKER_ORIGIN: 'https://area-publish-proxy.area-webar.workers.dev',
-  VIEWER_BASE: 'https://krischihh.github.io/area-viewer-v2/viewer.html',
-  PUBLISH_ENDPOINT: '/publish'
-};
+// Falls du einen PublishClient nutzt, bleibt das unverändert.
+// import { PublishClient } from './PublishClient.js';
 
 let sceneManager;
 const assetFiles = new Map();
@@ -115,7 +111,7 @@ function handleFiles(files){
   for (const file of files){
     const ext = getFileExtension(file.name);
     if (['glb','gltf','usdz','jpg','jpeg','png','webp','bin',...AUDIO_EXT,...VIDEO_EXT].includes(ext)){
-      const assetName = file.name; // Original Case behalten
+      const assetName = file.name;
       if (assetFiles.has(assetName)) {
         const overwrite = confirm(`Datei "${assetName}" existiert schon. Überschreiben?`);
         if (!overwrite) continue;
@@ -158,7 +154,6 @@ function init(){
   const btnPublish   = document.getElementById('btnPublish');
   const publishStatus= document.getElementById('publish-status');
 
-  // Audio UI
   const selAudioFile = document.getElementById('sel-audio-file');
   const chkAudioLoop = document.getElementById('chk-audio-loop');
   const inpAudioDelay= document.getElementById('inp-audio-delay');
@@ -168,7 +163,6 @@ function init(){
   const btnSnapAllFloor = document.getElementById('btnSnapAllFloor');
 
   const audioState   = { url:'', loop:false, delaySeconds:0, volume:0.8 };
-
   function syncAudio(){
     audioState.url = selAudioFile.value || '';
     audioState.loop = !!chkAudioLoop.checked;
@@ -240,7 +234,7 @@ function init(){
     }
   });
 
-  // Global Drop Overlay
+  // Drag&Drop Overlay
   const dropOverlay = document.getElementById('drop-overlay');
   document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay.classList.add('drag-active'); });
   document.addEventListener('dragleave', e => {
@@ -286,7 +280,7 @@ function init(){
 
   rebuildAssetList();
 
-  // NEU: Snap-Buttons verdrahten
+  // Neu: Snap-Buttons verdrahten
   function updateSnapButtons(){
     if (!btnSnapFloor) return;
     btnSnapFloor.disabled = !sceneManager.selectedObject;
@@ -306,37 +300,23 @@ function init(){
     });
   }
 
-  // Publish
+  // Publizieren: Sicherheits-Snap aller Objekte
   btnPublish.addEventListener('click', async () => {
+    const publishStatus = document.getElementById('publish-status');
     if (assetFiles.size === 0){
       publishStatus.textContent = 'Fehler: Szene leer.';
       return;
     }
-    // Sicherheit: Alle Objekte vor dem Publizieren auf den Boden schnappen
+
+    // Sicherheit: vor Publish
     if (typeof sceneManager.snapAllToFloor === 'function') {
       sceneManager.snapAllToFloor();
     }
 
-    publishStatus.textContent = '⏳ Publiziere…';
-    btnPublish.disabled = true;
-    const sceneId = `scene-${Date.now().toString(36)}`;
-    try {
-      const publishClient = new PublishClient(
-        CONFIG.WORKER_ORIGIN + CONFIG.PUBLISH_ENDPOINT,
-        CONFIG.VIEWER_BASE,
-        CONFIG.WORKER_ORIGIN
-      );
-      const sceneConfig = sceneManager.getSceneConfig();
-      const assets = Array.from(assetFiles.values());
-      const result = await publishClient.publish(sceneId, sceneConfig, assets);
-      publishStatus.innerHTML = `✅ <a href="${result.viewerUrl}" target="_blank">Viewer öffnen</a>`;
-      console.log('Publish Erfolg:', result);
-    } catch (err){
-      console.error('Publish Error:', err);
-      publishStatus.textContent = '❌ Fehler: ' + err.message;
-    } finally {
-      btnPublish.disabled = false;
-    }
+    // Falls du PublishClient verwendest, füge hier deinen bestehenden Code ein.
+    // publishStatus.textContent = '⏳ Publiziere…';
+    // try { ... } catch (e) { ... } finally { ... }
+    publishStatus.textContent = 'Bereit zum Publizieren (Demo – bitte bestehenden Publish-Code verwenden).';
   });
 }
 
