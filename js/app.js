@@ -1,8 +1,13 @@
 import { SceneManager } from './SceneManager.js';
 import * as THREE from 'three';
+import { PublishClient } from './PublishClient.js';
 
-// Falls du einen PublishClient nutzt, bleibt das unverändert.
-// import { PublishClient } from './PublishClient.js';
+// Konfiguration für Publish-Client und Viewer-URL
+const CONFIG = {
+  WORKER_ORIGIN: 'https://area-publish-proxy.area-webar.workers.dev',
+  PUBLISH_ENDPOINT: '/publish',
+  VIEWER_BASE: 'https://krischihh.github.io/area-viewer-v2/viewer.html'
+};
 
 let sceneManager;
 const assetFiles = new Map();
@@ -300,23 +305,39 @@ function init(){
     });
   }
 
-  // Publizieren: Sicherheits-Snap aller Objekte
+  // Publizieren: Sicherheits-Snap und PublishClient nutzen
   btnPublish.addEventListener('click', async () => {
-    const publishStatus = document.getElementById('publish-status');
+    publishStatus.textContent = '';
     if (assetFiles.size === 0){
       publishStatus.textContent = 'Fehler: Szene leer.';
       return;
     }
 
-    // Sicherheit: vor Publish
-    if (typeof sceneManager.snapAllToFloor === 'function') {
-      sceneManager.snapAllToFloor();
-    }
+    // Sicherheit: vor Publish alles auf Boden setzen
+    sceneManager.snapAllToFloor();
 
-    // Falls du PublishClient verwendest, füge hier deinen bestehenden Code ein.
-    // publishStatus.textContent = '⏳ Publiziere…';
-    // try { ... } catch (e) { ... } finally { ... }
-    publishStatus.textContent = 'Bereit zum Publizieren (Demo – bitte bestehenden Publish-Code verwenden).';
+    const sceneId = `scene-${Date.now().toString(36)}`;
+    const viewerBase = CONFIG.VIEWER_BASE;
+    const publishEndpoint = CONFIG.WORKER_ORIGIN + CONFIG.PUBLISH_ENDPOINT;
+
+    publishStatus.textContent = '⏳ Publiziere…';
+    btnPublish.disabled = true;
+
+    try {
+      const client = new PublishClient(publishEndpoint, viewerBase, CONFIG.WORKER_ORIGIN);
+      const sceneConfig = sceneManager.getSceneConfig();
+      const assets = Array.from(assetFiles.values());
+      const result = await client.publish(sceneId, sceneConfig, assets);
+
+      // Zeige Viewer-Link
+      publishStatus.innerHTML = `✅ <a href="${result.viewerUrl}" target="_blank" rel="noopener">Viewer öffnen</a>`;
+      console.log('Publish Erfolg:', result);
+    } catch (err) {
+      console.error('Publish Error:', err);
+      publishStatus.textContent = '❌ Fehler: ' + (err?.message || String(err));
+    } finally {
+      btnPublish.disabled = false;
+    }
   });
 }
 
