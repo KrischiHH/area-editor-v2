@@ -13,7 +13,7 @@ export class SceneManager {
     this.editableObjects = [];
     this.selectedObject = null;
 
-    // Hooks (werden von app.js überschrieben)
+    // Event-Hooks (werden in app.js gesetzt)
     this.onSceneUpdate = () => {};
     this.onSelectionChange = () => {};
     this.onTransformChange = () => {};
@@ -25,9 +25,12 @@ export class SceneManager {
   handleResize(){
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
-    this.camera.aspect = w/h;
+    // Notfall: Falls Container (noch) 0 ist, versuche Fenstergröße
+    const W = w || window.innerWidth;
+    const H = h || window.innerHeight;
+    this.camera.aspect = W/H;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w,h);
+    this.renderer.setSize(W,H);
   }
 
   animate(){
@@ -35,16 +38,17 @@ export class SceneManager {
     this.renderer.render(this.scene, this.camera);
   }
 
-  // NEU: Objekt an Boden schnappen (minY → 0)
+  // Neu: Objekt an Boden schnappen (minY → 0)
   snapObjectToFloor(obj){
     if (!obj) return;
     const box = new THREE.Box3().setFromObject(obj);
-    if (!isFinite(box.min.y)) return;
-    if (Math.abs(box.min.y) < 1e-5) return; // Toleranz
+    if (!Number.isFinite(box.min.y)) return;
+    // Toleranz: kleine Werte ignorieren
+    if (Math.abs(box.min.y) < 1e-5) return;
     obj.position.y -= box.min.y;
   }
 
-  // NEU: Alle bearbeitbaren Objekte schnappen
+  // Neu: Alle bearbeitbaren Objekte schnappen
   snapAllToFloor(){
     for (const o of this.editableObjects){
       this.snapObjectToFloor(o);
@@ -60,10 +64,13 @@ export class SceneManager {
     return new Promise((resolve, reject) => {
       loader.load(url, gltf => {
         const root = gltf.scene || gltf.scenes?.[0];
-        if (!root){ reject(new Error('GLTF ohne Szene')); return; }
+        if (!root){
+          reject(new Error('GLTF ohne Szene'));
+          return;
+        }
         root.name = name || 'Model';
 
-        // Automatischer Boden-Snap
+        // Automatischer Boden-Snap direkt nach dem Laden
         this.snapObjectToFloor(root);
 
         this.scene.add(root);
@@ -93,7 +100,7 @@ export class SceneManager {
     if (Number.isFinite(rotationDeg.y)) obj.rotation.y = THREE.MathUtils.degToRad(rotationDeg.y);
     if (Number.isFinite(rotationDeg.z)) obj.rotation.z = THREE.MathUtils.degToRad(rotationDeg.z);
 
-    // Einfache Uniform-Skalierung
+    // Uniform-Skalierung
     if (Number.isFinite(scaleVal)) obj.scale.set(scaleVal, scaleVal, scaleVal);
 
     this.onTransformChange();
