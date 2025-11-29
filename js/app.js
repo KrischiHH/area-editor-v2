@@ -268,8 +268,6 @@ function init(){
       }
 
       const uploadAssets = [];
-      // Falls du original Assets archivieren willst:
-      // originalAssets.forEach(f => uploadAssets.push(f));
       const mergedFile = new File([mergedBlob], 'scene.glb', { type: 'model/gltf-binary' });
       uploadAssets.push(mergedFile);
 
