@@ -44,9 +44,17 @@ export class SceneManager {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x161b23);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    // AmbientLight zur Laufzeit beibehalten, aber für Export temporär entfernen
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    this.scene.add(this.ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
     dirLight.position.set(5, 10, 7.5);
+    // Target als Kind, um Warnung zu vermeiden
+    const lightTarget = new THREE.Object3D();
+    lightTarget.position.set(0, 0, -1);
+    dirLight.add(lightTarget);
+    dirLight.target = lightTarget;
     this.scene.add(dirLight);
 
     this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
@@ -240,6 +248,10 @@ export class SceneManager {
   }
 
   async exportMergedGlbBlob(){
+    // Temporär AmbientLight entfernen, damit Export sauber bleibt
+    const hadAmbient = !!this.ambient?.parent;
+    if (hadAmbient) this.scene.remove(this.ambient);
+
     return new Promise((resolve, reject) => {
       const mergedClip = this.buildMergedAnimationClip();
       const animations = mergedClip ? [mergedClip] : [];
@@ -247,18 +259,26 @@ export class SceneManager {
         this.scene,
         gltf => {
           try {
-            if (gltf instanceof ArrayBuffer) {
-              resolve(new Blob([gltf], { type: 'model/gltf-binary' }));
-            } else if (gltf && gltf.buffers) {
-              resolve(new Blob([JSON.stringify(gltf)], { type: 'application/json' }));
-            } else {
-              reject(new Error('Unbekanntes GLTF Exportformat'));
+            // Mit binary:true MUSS ein ArrayBuffer zurückkommen (GLB)
+            if (!(gltf instanceof ArrayBuffer)) {
+              throw new Error('Exporter lieferte kein ArrayBuffer (GLB).');
             }
+            const blob = new Blob([gltf], { type: 'model/gltf-binary' });
+            resolve(blob);
           } catch(e){
             reject(e);
+          } finally {
+            // AmbientLight wieder hinzufügen
+            if (hadAmbient) this.scene.add(this.ambient);
           }
         },
-        { binary: true, animations }
+        {
+          binary: true,
+          animations,
+          embedImages: true,
+          onlyVisible: true,
+          includeCustomExtensions: false
+        }
       );
     });
   }
