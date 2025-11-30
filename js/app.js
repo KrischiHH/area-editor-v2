@@ -25,8 +25,8 @@ function classifyAsset(file) {
 }
 function formatBytes(bytes) {
   if (!bytes && bytes !== 0) return '';
-  const units = ['B','KB','MB','GB']; let i=0; let v=bytes;
-  while (v>=1024 && i<units.length-1){ v/=1024; i++; }
+  const units = ['B','KB','MB','GB']; let i = 0; let v = bytes;
+  while (v >= 1024 && i < units.length-1) { v/=1024; i++; }
   return v.toFixed(v<10?2:1)+' '+units[i];
 }
 
@@ -152,29 +152,47 @@ function ensureSelectionOverlay(){
 let isMarquee=false;
 let marqueeStart={x:0,y:0};
 let marqueeCurrent={x:0,y:0};
+let marqueeAppend=false;
+const MARQUEE_THRESHOLD=8; // px Mindestbewegung damit Box-Select startet
+let marqueeCandidate=false; // nur "Kandidat" bis Threshold erreicht ist
 
-function beginMarquee(x,y){
-  isMarquee=true;
+function beginMarqueeCandidate(x,y,append){
+  marqueeCandidate=true;
+  marqueeAppend=append;
   marqueeStart.x=x; marqueeStart.y=y;
-  const box=ensureSelectionOverlay();
-  Object.assign(box.style,{left:x+'px',top:y+'px',width:'0px',height:'0px',display:'block'});
+  marqueeCurrent.x=x; marqueeCurrent.y=y;
 }
-
+function tryStartMarquee(x,y){
+  if(!marqueeCandidate) return;
+  const dx=Math.abs(x - marqueeStart.x);
+  const dy=Math.abs(y - marqueeStart.y);
+  if(dx>=MARQUEE_THRESHOLD || dy>=MARQUEE_THRESHOLD){
+    isMarquee=true;
+    marqueeCandidate=false;
+    const box=ensureSelectionOverlay();
+    Object.assign(box.style,{left:Math.min(marqueeStart.x,x)+'px',top:Math.min(marqueeStart.y,y)+'px',width:Math.abs(x-marqueeStart.x)+'px',height:Math.abs(y-marqueeStart.y)+'px',display:'block'});
+  }
+}
 function updateMarquee(x,y){
   marqueeCurrent.x=x; marqueeCurrent.y=y;
   const box=ensureSelectionOverlay();
-  const minX=Math.min(marqueeStart.x,x);
-  const minY=Math.min(marqueeStart.y,y);
+  const minX=Math.min(marqueeStart.x, x);
+  const minY=Math.min(marqueeStart.y, y);
   const w=Math.abs(x - marqueeStart.x);
   const h=Math.abs(y - marqueeStart.y);
   Object.assign(box.style,{left:minX+'px',top:minY+'px',width:w+'px',height:h+'px'});
 }
-
-function endMarquee(append=false){
-  if(!isMarquee) return;
-  isMarquee=false;
+function endMarquee(){
   const box=ensureSelectionOverlay();
   box.style.display='none';
+
+  if(!isMarquee){ // Kein echter Marquee gestartet → nichts tun
+    marqueeCandidate=false;
+    return;
+  }
+
+  isMarquee=false;
+  marqueeCandidate=false;
 
   const x1=Math.min(marqueeStart.x, marqueeCurrent.x);
   const y1=Math.min(marqueeStart.y, marqueeCurrent.y);
@@ -200,24 +218,19 @@ function endMarquee(append=false){
       const v=c.clone().project(sceneManager.camera);
       const sx=(v.x*0.5+0.5)*window.innerWidth;
       const sy=(-v.y*0.5+0.5)*window.innerHeight;
-      if(sx>=x1 && sx<=x2 && sy>=y1 && sy<=y2){
-        inside=true; break;
-      }
+      if(sx>=x1 && sx<=x2 && sy>=y1 && sy<=y2){ inside=true; break; }
     }
     if(inside){
       newly.push(obj);
       return;
     }
-    // Fallback: Mittelpunkt
     const center=bb.getCenter(new THREE.Vector3()).project(sceneManager.camera);
     const csx=(center.x*0.5+0.5)*window.innerWidth;
     const csy=(-center.y*0.5+0.5)*window.innerHeight;
-    if(csx>=x1 && csx<=x2 && csy>=y1 && csy<=y2){
-      newly.push(obj);
-    }
+    if(csx>=x1 && csx<=x2 && csy>=y1 && csy<=y2){ newly.push(obj); }
   });
 
-  if(!append){
+  if(!marqueeAppend){
     sceneManager.selectedObjects=newly;
   } else {
     newly.forEach(o=>{
@@ -228,52 +241,6 @@ function endMarquee(append=false){
   }
   sceneManager._updateSelectionVisuals();
 }
-
-/* ---------- Context Menu ---------- */
-let contextMenuEl=null;
-function ensureContextMenu(){
-  if(!contextMenuEl){
-    contextMenuEl=document.createElement('div');
-    contextMenuEl.id='viewport-context-menu';
-    contextMenuEl.innerHTML=`
-      <button data-action="duplicate">Duplizieren</button>
-      <button data-action="snap">Snap to Ground</button>
-      <button data-action="delete">Löschen</button>
-      <hr>
-      <button data-action="pivot">${'Pivot Edit'}</button>
-      <button data-action="clear">Auswahl leeren</button>
-    `;
-    document.body.appendChild(contextMenuEl);
-    contextMenuEl.addEventListener('click', e=>{
-      const act=e.target.getAttribute('data-action');
-      if(!act) return;
-      switch(act){
-        case 'duplicate': sceneManager.duplicateSelected(); break;
-        case 'snap': sceneManager.snapToGround(); break;
-        case 'delete': sceneManager.deleteSelected(); break;
-        case 'pivot': console.log('Pivot Edit Mode:', sceneManager.togglePivotEdit()); break;
-        case 'clear': sceneManager.clearSelection(); break;
-      }
-      hideContextMenu();
-    });
-  }
-  return contextMenuEl;
-}
-function showContextMenu(x,y){
-  const el=ensureContextMenu();
-  el.style.display='flex';
-  el.style.left=x+'px';
-  el.style.top=y+'px';
-}
-function hideContextMenu(){
-  if(contextMenuEl) contextMenuEl.style.display='none';
-}
-window.addEventListener('click', e=>{
-  // Outside click closes menu
-  if(contextMenuEl && contextMenuEl.style.display==='flex'){
-    if(!contextMenuEl.contains(e.target)) hideContextMenu();
-  }
-});
 
 /* -------------------- Init -------------------- */
 function init(){
@@ -299,41 +266,86 @@ function init(){
       case 'r': console.log('Gizmo Mode:', sceneManager.cycleGizmoMode()); break;
       case 'o': console.log('Outline:', sceneManager.toggleOutline()); break;
       case 'p': console.log('Pivot Edit Mode:', sceneManager.togglePivotEdit()); break;
-      case 'escape': if(!isMarquee) sceneManager.clearSelection(); break;
+      case 'l': console.log('Light Profile:', sceneManager.cycleLightProfile()); break;
+      case 'escape': if(!isMarquee && !marqueeCandidate) sceneManager.clearSelection(); break;
       case 'delete':
       case 'backspace': sceneManager.deleteSelected(); break;
     }
   });
 
   // Box-Selection / Canvas interactions
+  // Änderung: Box-Selection NUR mit Shift+Linksklick-Drag auf Canvas-Hintergrund und erst ab Threshold.
   canvas.addEventListener('mousedown', e=>{
-    if(e.button===2) return; // context menu
-    if(e.button!==0) return;
-    if(e.target!==canvas) return;
-    if(!e.altKey){
-      beginMarquee(e.clientX, e.clientY);
-      hideContextMenu();
+    if(e.button===2) return; // Kontextmenü separat
+    if(e.button!==0) return; // nur linke Taste
+    if(e.target!==canvas) return; // nicht auf UI-Elementen oder Gizmo
+    // Box-Selection nur mit Shift (oder Ctrl/Meta als additive Auswahl)
+    const append = e.shiftKey || e.ctrlKey || e.metaKey;
+    if(append && !e.altKey){
+      beginMarqueeCandidate(e.clientX, e.clientY, append);
+    } else {
+      // Kein Marquee-Kandidat → OrbitControls übernehmen (Standard)
+      marqueeCandidate=false;
     }
   });
 
   window.addEventListener('mousemove', e=>{
+    if(marqueeCandidate) tryStartMarquee(e.clientX, e.clientY);
     if(isMarquee) updateMarquee(e.clientX, e.clientY);
   });
 
   window.addEventListener('mouseup', e=>{
-    if(isMarquee){
-      const append=e.shiftKey||e.ctrlKey||e.metaKey;
-      endMarquee(append);
+    if(isMarquee || marqueeCandidate){
+      endMarquee();
     }
   });
 
+  // Kontextmenü
+  let contextMenuEl=null;
+  function ensureContextMenu(){
+    if(!contextMenuEl){
+      contextMenuEl=document.createElement('div');
+      contextMenuEl.id='viewport-context-menu';
+      contextMenuEl.innerHTML=`
+        <button data-action="duplicate">Duplizieren</button>
+        <button data-action="snap">Snap to Ground</button>
+        <button data-action="delete">Löschen</button>
+        <hr>
+        <button data-action="pivot">${'Pivot Edit'}</button>
+        <button data-action="clear">Auswahl leeren</button>
+      `;
+      document.body.appendChild(contextMenuEl);
+      contextMenuEl.addEventListener('click', e=>{
+        const act=e.target.getAttribute('data-action');
+        if(!act) return;
+        switch(act){
+          case 'duplicate': sceneManager.duplicateSelected(); break;
+          case 'snap': sceneManager.snapToGround(); break;
+          case 'delete': sceneManager.deleteSelected(); break;
+          case 'pivot': console.log('Pivot Edit Mode:', sceneManager.togglePivotEdit()); break;
+          case 'clear': sceneManager.clearSelection(); break;
+        }
+        hideContextMenu();
+      });
+    }
+    return contextMenuEl;
+  }
+  function showContextMenu(x,y){
+    const el=ensureContextMenu();
+    el.style.display='flex';
+    el.style.left=x+'px';
+    el.style.top=y+'px';
+  }
+  function hideContextMenu(){
+    if(contextMenuEl) contextMenuEl.style.display='none';
+  }
   canvas.addEventListener('contextmenu', e=>{
     e.preventDefault();
-    if(sceneManager.selectedObjects.length>0){
-      showContextMenu(e.clientX, e.clientY);
-    } else {
-      // leeres Kontextmenü nur Clear / SelectAll optional
-      showContextMenu(e.clientX, e.clientY);
+    showContextMenu(e.clientX, e.clientY);
+  });
+  window.addEventListener('click', e=>{
+    if(contextMenuEl && contextMenuEl.style.display==='flex'){
+      if(!contextMenuEl.contains(e.target)) hideContextMenu();
     }
   });
 
@@ -361,7 +373,7 @@ function init(){
     audioState.loop=!!chkAudioLoop?.checked;
     audioState.delaySeconds=parseFloat(inpAudioDelay?.value)||0;
     const v=parseFloat(inpAudioVol?.value);
-    audioState.volume=Number.isFinite(v)? Math.min(1, Math.max(0,v)):0.8;
+    audioState.volume=Number.isFinite(v)? Math.min(1, Math.max(0, v)) : 0.8;
     sceneManager.setAudioConfig(audioState);
   }
   [selAudioFile,chkAudioLoop,inpAudioDelay,inpAudioVol].forEach(el=>el&&el.addEventListener('input',syncAudio));
@@ -391,7 +403,7 @@ function init(){
 
   const updatePropsUI=()=>{
     const sel=sceneManager.selectedObjects;
-    if(!propContent||!propEmpty) return;
+    if(!propContent || !propEmpty) return;
     if(sel.length===1){
       propContent.classList.remove('hidden');
       propEmpty.classList.add('hidden');
