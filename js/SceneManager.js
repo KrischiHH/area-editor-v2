@@ -249,4 +249,66 @@ export class SceneManager {
     };
   }
 
-// ... (Restliche Methoden bleiben gleich) ...
+exportMergedGlbBlob(){
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Nur Assets exportieren, die in der Szene sind
+        const exportableAssets = this.editableObjects.filter(o => o.userData.isEditable);
+        
+        // Temporäre Szene für den Export erstellen, um nur das Modell zu enthalten
+        const tempScene = new THREE.Scene();
+        exportableAssets.forEach(asset => {
+          // Position, Rotation und Skalierung der Assets kopieren
+          const clone = asset.clone();
+          tempScene.add(clone);
+        });
+
+        // Animationen zusammenführen
+        const animations = this.buildMergedAnimationClip(exportableAssets);
+        
+        // Export
+        this.exporter.parse(
+          tempScene,
+          (gltf) => {
+            resolve(new Blob([gltf], { type: 'model/gltf-binary' }));
+          },
+          (error) => {
+            reject(error);
+          },
+          {
+            binary: true,
+            animations: animations.length > 0 ? animations : undefined,
+            embedImages: true,
+            onlyVisible: true,
+            includeCustomExtensions: false
+          }
+        );
+      } catch(e) {
+        reject(e);
+      }
+    });
+  }
+
+  buildMergedAnimationClip(objects){
+    // Sammelt alle Animation Clips
+    const allClips = [];
+    objects.forEach(obj => {
+      if (this.modelAnimationMap.has(obj)){
+        allClips.push(...this.modelAnimationMap.get(obj).clips);
+      }
+    });
+
+    if (allClips.length === 0) return [];
+    
+    // Zusammenführen aller Clips in einen einzigen "merged" Clip
+    // Dies ist notwendig für den GLTFExporter, wenn er mehrere Animationen hat.
+    const mergedClip = THREE.AnimationUtils.createClip(
+      'merged_animation',
+      -1, // Dauer wird automatisch berechnet
+      allClips.flatMap(clip => clip.tracks)
+    );
+
+    return [mergedClip];
+  }
+
+} // <-- Schließt die Klasse SceneManager
