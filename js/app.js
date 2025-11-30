@@ -132,8 +132,8 @@ function handleFiles(files){
         const sel = document.getElementById('sel-audio-file');
         if (sel && ![...sel.options].some(o => o.value === assetName)) {
           const opt = document.createElement('option');
-            opt.value = assetName; opt.textContent = assetName;
-            sel.appendChild(opt);
+          opt.value = assetName; opt.textContent = assetName;
+          sel.appendChild(opt);
         }
       }
     }
@@ -150,7 +150,7 @@ function init(){
   }
   sceneManager = new SceneManager(canvas);
 
-  // Shortcuts (Undo/Redo + vorhandene)
+  // Shortcuts (Undo/Redo + Multi-Select + vorhandene)
   window.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     const key = e.key.toLowerCase();
@@ -165,6 +165,11 @@ function init(){
     if ((ctrl && key === 'y') || (ctrl && key === 'z' && e.shiftKey)) {
       e.preventDefault();
       sceneManager.redo();
+      return;
+    }
+    if (ctrl && key === 'a') {
+      e.preventDefault();
+      sceneManager.selectAll();
       return;
     }
 
@@ -189,7 +194,7 @@ function init(){
         break;
       }
       case 'escape':
-        sceneManager.selectObject(null);
+        sceneManager.clearSelection();
         break;
       case 'delete':
       case 'backspace':
@@ -238,8 +243,13 @@ function init(){
     sceneManager.editableObjects.forEach(obj => {
       const li = document.createElement('li');
       li.textContent = obj.name || 'Unbenanntes Objekt';
-      if (sceneManager.selectedObject === obj) li.classList.add('selected');
-      li.onclick = () => sceneManager.selectObject(obj);
+      // Multi-Select Markierung
+      if (sceneManager.selectedObjects.includes(obj)) li.classList.add('selected');
+      li.addEventListener('click', (e) => {
+        sceneManager.selectObject(obj, e.shiftKey || e.ctrlKey || e.metaKey);
+        refreshObjectList(); // Aktualisiere Selektion im UI
+        updatePropsUI();
+      });
       objectList.appendChild(li);
     });
   }
@@ -249,11 +259,12 @@ function init(){
   };
 
   const updatePropsUI = () => {
-    const obj = sceneManager.selectedObject;
+    const sel = sceneManager.selectedObjects;
     if (!propContent || !propEmpty) return;
-    if (obj){
+    if (sel.length === 1){
       propContent.classList.remove('hidden');
       propEmpty.classList.add('hidden');
+      const obj = sel[0];
       inpName.value = obj.name || '';
       inpPos.x.value = obj.position.x.toFixed(2);
       inpPos.y.value = obj.position.y.toFixed(2);
@@ -264,6 +275,7 @@ function init(){
       inpScale.value = obj.scale.x.toFixed(2);
       inpLinkUrl.value = obj.userData.linkUrl || '';
     } else {
+      // Mehrfachauswahl – deaktivierte/alternative Anzeige
       propContent.classList.add('hidden');
       propEmpty.classList.remove('hidden');
       inpLinkUrl.value = '';
@@ -274,7 +286,7 @@ function init(){
   sceneManager.onTransformChange = updatePropsUI;
 
   function applyTransform(){
-    if (!sceneManager.selectedObject) return;
+    if (sceneManager.selectedObjects.length !== 1) return;
     const p = {
       x: parseFloat(inpPos.x.value),
       y: parseFloat(inpPos.y.value),
@@ -287,8 +299,8 @@ function init(){
     };
     const s = parseFloat(inpScale.value);
     sceneManager.updateSelectedTransform(p,r,s);
-    if (sceneManager.selectedObject) {
-      sceneManager.selectedObject.name = inpName.value;
+    if (sceneManager.selectedObjects.length === 1) {
+      sceneManager.selectedObjects[0].name = inpName.value;
     }
     refreshObjectList();
   }
@@ -296,9 +308,10 @@ function init(){
     .forEach(el => el && el.addEventListener('input', applyTransform));
 
   inpLinkUrl.addEventListener('input', () => {
-    if (sceneManager.selectedObject){
+    if (sceneManager.selectedObjects.length === 1){
+      const obj = sceneManager.selectedObjects[0];
       const sanitized = sanitizeUrl(inpLinkUrl.value);
-      sceneManager.selectedObject.userData.linkUrl = sanitized;
+      obj.userData.linkUrl = sanitized;
       if (sanitized !== inpLinkUrl.value) {
         inpLinkUrl.value = sanitized;
       }
@@ -321,7 +334,7 @@ function init(){
     } else { handleFiles(e.dataTransfer.files); }
   });
 
-  // Asset spezifisches Drop
+  // Asset Drop
   const btnAddAssets = document.getElementById('btnAddAssets');
   const assetInput = document.getElementById('asset-upload-input');
   const assetDropzone = document.getElementById('asset-dropzone');
