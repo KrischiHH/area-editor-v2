@@ -8,36 +8,20 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 
-/**
- * SceneManager mit:
- * - OrbitControls
- * - TransformControls (Multi-Select über Pivot-Objekt)
- * - Outline/Silhouette für Auswahl (auch mehrere)
- * - Duplizieren, Löschen, Snap-to-Ground
- * - Fokus, Gizmo-Mode cycle
- * - Undo/Redo inkl. Gruppierung für Multi-Select Aktionen
- */
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
 
-    // Grundelemente
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x000000);
 
-    this.camera = new THREE.PerspectiveCamera(
-      60,
-      canvas.clientWidth / canvas.clientHeight,
-      0.1,
-      500
-    );
+    this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 500);
     this.camera.position.set(0, 1.6, 4);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-    // OrbitControls
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
@@ -48,28 +32,37 @@ export class SceneManager {
     this.controls.target.set(0, 1.0, 0);
     this.controls.update();
 
-    // TransformControls
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.transformControls.setSize(1.0);
     this.transformControls.addEventListener('dragging-changed', e => {
       this.controls.enabled = !e.value;
       if (e.value) {
-        // Drag start: Ausgangszustände für alle selektierten Objekte erfassen
-        this._groupTransformStartStates = this.selectedObjects.map(o => ({
-          object: o,
-          prev: this._captureTransform(o)
-        }));
-        this._pivotStartState = this._captureTransform(this._pivot);
+        // Drag Start
+        if (this.pivotEditMode) {
+          this._pivotDragStart = this._captureTransform(this._pivot);
+        } else if (this.selectedObjects.length > 0) {
+          this._groupTransformStartStates = this.selectedObjects.map(o => ({ object: o, prev: this._captureTransform(o) }));
+          this._pivotStartState = this._captureTransform(this._pivot);
+        }
       } else {
-        // Drag end: Endzustände erfassen und als Gruppen-Command pushen
-        if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
+        // Drag End
+        if (this.pivotEditMode) {
+          const end = this._captureTransform(this._pivot);
+            if (!this._compareTransform(this._pivotDragStart, end)) {
+              this._pushCommand({
+                type: 'groupPivotChange',
+                prev: this._pivotDragStart,
+                next: end
+              });
+            }
+          this._pivotDragStart = null;
+        } else if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
           const mode = this.transformControls.getMode();
           const items = this.selectedObjects.map(o => ({
             object: o,
             prev: this._groupTransformStartStates.find(s => s.object === o)?.prev,
             next: this._captureTransform(o)
           }));
-          // Nur wenn sich wirklich etwas geändert hat
           const changed = items.some(i => !this._compareTransform(i.prev, i.next));
           if (changed) {
             this._pushCommand({
@@ -85,52 +78,51 @@ export class SceneManager {
       }
     });
     this.transformControls.addEventListener('change', () => {
-      // Live-Propagation für Multi-Select während Drag
-      if (this.transformControls.dragging && this.selectedObjects.length > 1 && this._pivot) {
+      if (this.transformControls.dragging && this.selectedObjects.length > 1 && !this.pivotEditMode) {
         this._applyPivotLiveTransform();
       }
     });
     this.scene.add(this.transformControls);
 
-    // Licht
+    // Lights
     const hemi = new THREE.HemisphereLight(0xffffff, 0x394053, 0.9);
     this.scene.add(hemi);
     const dir = new THREE.DirectionalLight(0xffffff, 0.9);
     dir.position.set(6, 12, 8);
-    dir.castShadow = false;
     this.scene.add(dir);
 
-    // Boden / Hilfen
+    // Helpers
     const grid = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
     grid.position.y = 0;
     this.scene.add(grid);
 
-    // Achsenhelper
     this.axesHelper = new THREE.AxesHelper(1.5);
     this.axesHelper.visible = false;
     this.scene.add(this.axesHelper);
 
-    // Auswahl-State
+    // State
     this.editableObjects = [];
-    this.selectedObjects = [];   // Multi-Select
+    this.selectedObjects = [];
     this.audioConfig = null;
     this.modelAnimationMap = new Map();
     this._mixers = [];
     this._clock = new THREE.Clock();
     this._outlineEnabled = true;
 
-    // Pivot für Multi-Select
+    // Pivot
     this._pivot = new THREE.Object3D();
     this._pivot.name = '_SelectionPivot';
     this.scene.add(this._pivot);
+    this.pivotEditMode = false;
+    this._pivotDragStart = null;
 
-    // Undo / Redo
+    // Undo/Redo
     this.undoStack = [];
     this.redoStack = [];
     this._groupTransformStartStates = null;
     this._pivotStartState = null;
 
-    // Loader / Exporter
+    // Loaders
     this.loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
@@ -140,18 +132,13 @@ export class SceneManager {
     // Postprocessing (Outline)
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
-    this.outlinePass = new OutlinePass(
-      new THREE.Vector2(canvas.clientWidth, canvas.clientHeight),
-      this.scene,
-      this.camera
-    );
+    this.outlinePass = new OutlinePass(new THREE.Vector2(canvas.clientWidth, canvas.clientHeight), this.scene, this.camera);
     this.outlinePass.edgeStrength = 5.0;
     this.outlinePass.edgeGlow = 0.3;
     this.outlinePass.edgeThickness = 1.0;
     this.outlinePass.pulsePeriod = 0;
     this.outlinePass.visibleEdgeColor.set('#4da6ff');
     this.outlinePass.hiddenEdgeColor.set('#1a3d66');
-
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.outlinePass);
 
@@ -166,7 +153,6 @@ export class SceneManager {
       const delta = this._clock.getDelta();
       this._mixers.forEach(m => m.update(delta));
       this.controls.update();
-
       if (this._outlineEnabled) {
         this.composer.render();
       } else {
@@ -175,11 +161,10 @@ export class SceneManager {
     };
     animate();
 
-    // Resize
     window.addEventListener('resize', () => this._handleResize());
   }
 
-  /* -------------------- Utility -------------------- */
+  /* ---------- Utility ---------- */
   _handleResize() {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
@@ -212,11 +197,11 @@ export class SceneManager {
   _compareTransform(a, b) {
     if (!a || !b) return false;
     return a.position.equals(b.position) &&
-           a.rotation.x === b.rotation.x &&
-           a.rotation.y === b.rotation.y &&
-           a.rotation.z === b.rotation.z &&
-           a.scale.equals(b.scale) &&
-           a.name === b.name;
+      a.rotation.x === b.rotation.x &&
+      a.rotation.y === b.rotation.y &&
+      a.rotation.z === b.rotation.z &&
+      a.scale.equals(b.scale) &&
+      a.name === b.name;
   }
 
   _pushCommand(cmd) {
@@ -224,35 +209,24 @@ export class SceneManager {
     this.redoStack.length = 0;
   }
 
-  /* -------------------- Modell laden -------------------- */
+  /* ---------- Laden ---------- */
   loadModel(url, nameHint) {
     this.loader.load(
       url,
       gltf => {
         const root = gltf.scene;
-        root.traverse(o => {
-          o.userData.isEditable = true;
-          o.castShadow = false;
-          o.receiveShadow = false;
-        });
-
-        if (gltf.animations && gltf.animations.length > 0) {
+        root.traverse(o => { o.userData.isEditable = true; });
+        if (gltf.animations?.length) {
           this.modelAnimationMap.set(root, { clips: gltf.animations });
           const mixer = new THREE.AnimationMixer(root);
-          gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+          gltf.animations.forEach(c => mixer.clipAction(c).play());
           this._mixers.push(mixer);
         }
-
         root.name = nameHint || 'Modell';
         this.scene.add(root);
         this.editableObjects.push(root);
-
         this._pushCommand({ type: 'groupAdd', objects: [root] });
-
-        if (this.editableObjects.length === 1) {
-          this.focusObject(root);
-        }
-
+        if (this.editableObjects.length === 1) this.focusObject(root);
         this._fireSceneUpdate();
       },
       undefined,
@@ -260,15 +234,13 @@ export class SceneManager {
     );
   }
 
-  /* -------------------- Auswahl -------------------- */
+  /* ---------- Auswahl + Pivot ---------- */
   selectObject(obj, additive = false) {
     if (!obj || !this.editableObjects.includes(obj)) {
       if (!additive) this.clearSelection();
       return;
     }
-
     if (additive) {
-      // Toggle
       if (this.selectedObjects.includes(obj)) {
         this.selectedObjects = this.selectedObjects.filter(o => o !== obj);
       } else {
@@ -277,7 +249,6 @@ export class SceneManager {
     } else {
       this.selectedObjects = [obj];
     }
-
     this._updateSelectionVisuals();
   }
 
@@ -292,35 +263,80 @@ export class SceneManager {
   }
 
   _updateSelectionVisuals() {
-    // Outline für alle selektierten
     this.outlinePass.selectedObjects = [...this.selectedObjects];
-
-    // Gizmo / Pivot
     if (this.selectedObjects.length === 0) {
       this.transformControls.detach();
       this.axesHelper.visible = false;
+      if (this.pivotEditMode) this.pivotEditMode = false;
     } else if (this.selectedObjects.length === 1) {
       const only = this.selectedObjects[0];
-      this.transformControls.attach(only);
+      if (!this.pivotEditMode) this.transformControls.attach(only);
       this.axesHelper.visible = true;
       this.axesHelper.position.copy(only.position);
       this.controls.target.copy(only.position);
     } else {
-      // Multi: Pivot in Mittelpunkt
       const center = new THREE.Vector3();
       this.selectedObjects.forEach(o => center.add(o.position));
       center.multiplyScalar(1 / this.selectedObjects.length);
-      this._pivot.position.copy(center);
-      this._pivot.rotation.set(0,0,0);
-      this._pivot.scale.set(1,1,1);
-      this.transformControls.attach(this._pivot);
+      if (!this.pivotEditMode) {
+        this._pivot.position.copy(center);
+        this._pivot.rotation.set(0,0,0);
+        this._pivot.scale.set(1,1,1);
+        this.transformControls.attach(this._pivot);
+      }
       this.axesHelper.visible = true;
-      this.axesHelper.position.copy(center);
-      this.controls.target.copy(center);
+      this.axesHelper.position.copy(this._pivot.position);
+      this.controls.target.copy(this._pivot.position);
     }
     this.controls.update();
     this.onSelectionChange?.();
     this._fireSceneUpdate();
+  }
+
+  togglePivotEdit() {
+    if (this.selectedObjects.length < 2) return false; // Pivot nur sinnvoll bei Multi-Select
+    this.pivotEditMode = !this.pivotEditMode;
+    if (this.pivotEditMode) {
+      // TransformControls nur Pivot bewegen
+      this.transformControls.attach(this._pivot);
+    } else {
+      // Nach Ende: Auswahl wieder normal an Pivot koppeln
+      this.transformControls.attach(this._pivot);
+    }
+    return this.pivotEditMode;
+  }
+
+  /* ---------- Multi-Live Transform ---------- */
+  _applyPivotLiveTransform() {
+    if (!this._pivotStartState || !this._pivot || this.selectedObjects.length < 2 || this.pivotEditMode) return;
+    const mode = this.transformControls.getMode();
+    const pivotPrev = this._pivotStartState.position;
+    const pivotCurrent = this._pivot.position.clone();
+    const deltaPos = pivotCurrent.clone().sub(pivotPrev);
+
+    if (mode === 'translate') {
+      this.selectedObjects.forEach(o => o.position.add(deltaPos));
+    } else if (mode === 'rotate') {
+      const qPrev = new THREE.Quaternion().setFromEuler(this._pivotStartState.rotation);
+      const qCurr = new THREE.Quaternion().setFromEuler(this._pivot.rotation);
+      const qDelta = qPrev.inverse().multiply(qCurr);
+      this.selectedObjects.forEach(o => {
+        const offset = o.position.clone().sub(pivotPrev);
+        offset.applyQuaternion(qDelta);
+        o.position.copy(pivotPrev.clone().add(offset));
+        o.quaternion.multiply(qDelta);
+      });
+    } else if (mode === 'scale') {
+      const prevScale = this._pivotStartState.scale;
+      const currScale = this._pivot.scale;
+      const sx = currScale.x / (prevScale.x || 1);
+      this.selectedObjects.forEach(o => {
+        const offset = o.position.clone().sub(pivotPrev).multiplyScalar(sx);
+        o.position.copy(pivotPrev.clone().add(offset));
+        o.scale.multiplyScalar(sx);
+      });
+    }
+    this.axesHelper.position.copy(this._pivot.position);
   }
 
   cycleGizmoMode() {
@@ -344,50 +360,7 @@ export class SceneManager {
     this.controls.update();
   }
 
-  /* -------------------- Multi-Select Live Transform -------------------- */
-  _applyPivotLiveTransform() {
-    if (!this._pivotStartState || !this._pivot || this.selectedObjects.length < 2) return;
-    const mode = this.transformControls.getMode();
-
-    const pivotPrev = this._pivotStartState.position;
-    const pivotCurrent = this._pivot.position.clone();
-    const deltaPos = pivotCurrent.clone().sub(pivotPrev);
-
-    if (mode === 'translate') {
-      // Alle Objekte verschieben relativ zum Delta
-      this.selectedObjects.forEach(o => {
-        o.position.add(deltaPos);
-      });
-    } else if (mode === 'rotate') {
-      // Rotation um Pivot
-      const qPrev = new THREE.Quaternion().setFromEuler(this._pivotStartState.rotation);
-      const qCurr = new THREE.Quaternion().setFromEuler(this._pivot.rotation);
-      const qDelta = qPrev.inverse().multiply(qCurr);
-
-      this.selectedObjects.forEach(o => {
-        const offset = o.position.clone().sub(pivotPrev);
-        offset.applyQuaternion(qDelta);
-        o.position.copy(pivotPrev.clone().add(offset));
-        o.quaternion.multiply(qDelta);
-      });
-    } else if (mode === 'scale') {
-      // Uniformes Scaling um Pivot
-      const prevScale = this._pivotStartState.scale;
-      const currScale = this._pivot.scale;
-      const sx = currScale.x / (prevScale.x === 0 ? 1 : prevScale.x);
-
-      this.selectedObjects.forEach(o => {
-        const offset = o.position.clone().sub(pivotPrev).multiplyScalar(sx);
-        o.position.copy(pivotPrev.clone().add(offset));
-        o.scale.multiplyScalar(sx);
-      });
-    }
-
-    // Update AchsenHelper Position
-    this.axesHelper.position.copy(this._pivot.position);
-  }
-
-  /* -------------------- Objektoperationen -------------------- */
+  /* ---------- Aktionen ---------- */
   duplicateSelected() {
     if (this.selectedObjects.length === 0) return [];
     const newObjects = this.selectedObjects.map(src => {
@@ -400,12 +373,7 @@ export class SceneManager {
       this.editableObjects.push(clone);
       return clone;
     });
-
-    this._pushCommand({
-      type: 'groupAdd',
-      objects: newObjects
-    });
-
+    this._pushCommand({ type: 'groupAdd', objects: newObjects });
     this.selectedObjects = newObjects;
     this._updateSelectionVisuals();
     return newObjects;
@@ -419,13 +387,7 @@ export class SceneManager {
       if (idx >= 0) this.editableObjects.splice(idx, 1);
       this.scene.remove(obj);
     });
-
-    this._pushCommand({
-      type: 'groupDelete',
-      objects: toDelete,
-      prevStates: toDelete.map(o => this._captureTransform(o))
-    });
-
+    this._pushCommand({ type: 'groupDelete', objects: toDelete, prevStates: toDelete.map(o => this._captureTransform(o)) });
     this.selectedObjects = [];
     this._updateSelectionVisuals();
   }
@@ -433,27 +395,18 @@ export class SceneManager {
   snapToGround() {
     if (this.selectedObjects.length === 0) return;
     const beforeStates = this.selectedObjects.map(o => this._captureTransform(o));
-
     this.selectedObjects.forEach(o => {
       const box = new THREE.Box3().setFromObject(o);
       const minY = box.min.y;
-      if (Number.isFinite(minY)) {
-        o.position.y -= minY;
-      }
+      if (Number.isFinite(minY)) o.position.y -= minY;
     });
-
     const afterStates = this.selectedObjects.map(o => this._captureTransform(o));
-    // Nur wenn Änderung
     const changed = afterStates.some((aft, i) => !this._compareTransform(beforeStates[i], aft));
     if (changed) {
       this._pushCommand({
         type: 'groupTransform',
         mode: 'snap',
-        items: this.selectedObjects.map((o, i) => ({
-          object: o,
-          prev: beforeStates[i],
-          next: afterStates[i]
-        }))
+        items: this.selectedObjects.map((o, i) => ({ object: o, prev: beforeStates[i], next: afterStates[i] }))
       });
       this.onTransformChange?.();
       this._fireSceneUpdate();
@@ -465,12 +418,11 @@ export class SceneManager {
     return this._outlineEnabled;
   }
 
-  /* -------------------- Manuelle Transform über UI (Single) -------------------- */
+  /* ---------- UI Einzel-Transform ---------- */
   updateSelectedTransform(pos, rotDeg, scale) {
     if (this.selectedObjects.length !== 1) return;
     const obj = this.selectedObjects[0];
     const before = this._captureTransform(obj);
-
     if (pos) {
       if (Number.isFinite(pos.x)) obj.position.x = pos.x;
       if (Number.isFinite(pos.y)) obj.position.y = pos.y;
@@ -482,29 +434,20 @@ export class SceneManager {
       if (Number.isFinite(rotDeg.y)) obj.rotation.y = toRad(rotDeg.y);
       if (Number.isFinite(rotDeg.z)) obj.rotation.z = toRad(rotDeg.z);
     }
-    if (Number.isFinite(scale) && scale > 0) {
-      obj.scale.set(scale, scale, scale);
-    }
-
+    if (Number.isFinite(scale) && scale > 0) obj.scale.set(scale, scale, scale);
     const after = this._captureTransform(obj);
     if (!this._compareTransform(before, after)) {
-      this._pushCommand({
-        type: 'transform',
-        object: obj,
-        prev: before,
-        next: after
-      });
+      this._pushCommand({ type: 'transform', object: obj, prev: before, next: after });
       this.onTransformChange?.();
       this._fireSceneUpdate();
     }
   }
 
-  /* -------------------- Undo / Redo -------------------- */
+  /* ---------- Undo / Redo ---------- */
   undo() {
     if (this.undoStack.length === 0) return;
     const cmd = this.undoStack.pop();
     this.redoStack.push(cmd);
-
     switch(cmd.type) {
       case 'groupAdd':
         cmd.objects.forEach(o => {
@@ -512,9 +455,7 @@ export class SceneManager {
           if (idx >= 0) this.editableObjects.splice(idx, 1);
           this.scene.remove(o);
         });
-        if (this.selectedObjects.some(o => cmd.objects.includes(o))) {
-          this.selectedObjects = [];
-        }
+        this.selectedObjects = this.selectedObjects.filter(o => !cmd.objects.includes(o));
         this._updateSelectionVisuals();
         break;
       case 'groupDelete':
@@ -531,7 +472,11 @@ export class SceneManager {
         this._fireSceneUpdate();
         break;
       case 'groupTransform':
-        cmd.items.forEach(item => this._applyTransform(item.object, item.prev));
+        cmd.items.forEach(it => this._applyTransform(it.object, it.prev));
+        this._fireSceneUpdate();
+        break;
+      case 'groupPivotChange':
+        this._applyTransform(this._pivot, cmd.prev);
         this._fireSceneUpdate();
         break;
       default:
@@ -544,7 +489,6 @@ export class SceneManager {
     if (this.redoStack.length === 0) return;
     const cmd = this.redoStack.pop();
     this.undoStack.push(cmd);
-
     switch(cmd.type) {
       case 'groupAdd':
         cmd.objects.forEach(o => {
@@ -560,17 +504,19 @@ export class SceneManager {
           if (idx >= 0) this.editableObjects.splice(idx, 1);
           this.scene.remove(o);
         });
-        if (this.selectedObjects.some(o => cmd.objects.includes(o))) {
-          this.selectedObjects = [];
-          this._updateSelectionVisuals();
-        }
+        this.selectedObjects = this.selectedObjects.filter(o => !cmd.objects.includes(o));
+        this._updateSelectionVisuals();
         break;
       case 'transform':
         this._applyTransform(cmd.object, cmd.next);
         this._fireSceneUpdate();
         break;
       case 'groupTransform':
-        cmd.items.forEach(item => this._applyTransform(item.object, item.next));
+        cmd.items.forEach(it => this._applyTransform(it.object, it.next));
+        this._fireSceneUpdate();
+        break;
+      case 'groupPivotChange':
+        this._applyTransform(this._pivot, cmd.next);
         this._fireSceneUpdate();
         break;
       default:
@@ -579,14 +525,11 @@ export class SceneManager {
     this.onSelectionChange?.();
   }
 
-  /* -------------------- SceneConfig -------------------- */
-  _fireSceneUpdate() {
-    this.onSceneUpdate?.();
-  }
+  /* ---------- SceneConfig ---------- */
+  _fireSceneUpdate() { this.onSceneUpdate?.(); }
 
   getSceneConfig() {
-    const assets = []; // später erweiterbar
-
+    const assets = [];
     const clickableNodes = this.editableObjects
       .filter(o => !!o.userData.linkUrl)
       .map(o => ({
@@ -598,7 +541,6 @@ export class SceneManager {
           z: Number(o.position.z.toFixed(3))
         }
       }));
-
     const audio = (this.audioConfig && this.audioConfig.url)
       ? {
           url: this.audioConfig.url,
@@ -608,11 +550,7 @@ export class SceneManager {
           embedElement: true
         }
       : undefined;
-
-    const modelEntry = {
-      url: this.currentModelFileName || 'scene.glb'
-    };
-
+    const modelEntry = { url: this.currentModelFileName || 'scene.glb' };
     return {
       meta: {
         title: 'ARea Scene V2',
@@ -631,18 +569,12 @@ export class SceneManager {
       try {
         const exportableAssets = this.editableObjects.filter(o => o.userData.isEditable);
         const tempScene = new THREE.Scene();
-        exportableAssets.forEach(asset => {
-          const clone = asset.clone();
-          tempScene.add(clone);
-        });
-
+        exportableAssets.forEach(asset => tempScene.add(asset.clone()));
         const animations = this.buildMergedAnimationClip(exportableAssets);
         this.exporter.parse(
           tempScene,
-          gltf => {
-            resolve(new Blob([gltf], { type: 'application/octet-stream' }));
-          },
-          error => { reject(error); },
+          gltf => resolve(new Blob([gltf], { type: 'application/octet-stream' })),
+          err => reject(err),
           {
             binary: true,
             animations: animations.length > 0 ? animations : undefined,
@@ -651,25 +583,19 @@ export class SceneManager {
             includeCustomExtensions: false
           }
         );
-      } catch (e) {
-        reject(e);
-      }
+      } catch(e) { reject(e); }
     });
   }
 
   buildMergedAnimationClip(objects) {
     const allClips = [];
-    objects.forEach(obj => {
-      if (this.modelAnimationMap.has(obj)) {
-        allClips.push(...this.modelAnimationMap.get(obj).clips);
+    objects.forEach(o => {
+      if (this.modelAnimationMap.has(o)) {
+        allClips.push(...this.modelAnimationMap.get(o).clips);
       }
     });
-    if (allClips.length === 0) return [];
-    const mergedClip = new THREE.AnimationClip(
-      'merged_animation',
-      -1,
-      allClips.flatMap(clip => clip.tracks)
-    );
-    return [mergedClip];
+    if (!allClips.length) return [];
+    const merged = new THREE.AnimationClip('merged_animation', -1, allClips.flatMap(c => c.tracks));
+    return [merged];
   }
 }
