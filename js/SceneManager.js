@@ -39,7 +39,10 @@ export class SceneManager {
           url: this.audioConfig.url,
           loop: !!this.audioConfig.loop,
           delaySeconds: this.audioConfig.delaySeconds || 0,
-          volume: Math.min(1, Math.max(0, this.audioConfig.volume ?? 0.8))
+          volume: Math.min(1, Math.max(0, this.audioConfig.volume ?? 0.8)),
+          // NEU: Signal an den Viewer, ein persistentes <audio> Element zu erzeugen,
+          // damit MediaRecorder den Audiotrack zuverlässig mit aufnehmen kann.
+          embedElement: true
         }
       : undefined;
 
