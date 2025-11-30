@@ -8,6 +8,13 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 
+/**
+ * Erweiterter SceneManager:
+ * - Multi-Select mit unabhängigem Pivot (Position + Rotation + Scale)
+ * - Pivot-Edit-Modus (P)
+ * - Group Transform mit Undo/Redo
+ * - Box-Selection kompatibel
+ */
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
@@ -37,24 +44,26 @@ export class SceneManager {
     this.transformControls.addEventListener('dragging-changed', e => {
       this.controls.enabled = !e.value;
       if (e.value) {
-        // Drag Start
         if (this.pivotEditMode) {
+          // Drag start for pivot edit
           this._pivotDragStart = this._captureTransform(this._pivot);
         } else if (this.selectedObjects.length > 0) {
-          this._groupTransformStartStates = this.selectedObjects.map(o => ({ object: o, prev: this._captureTransform(o) }));
-          this._pivotStartState = this._captureTransform(this._pivot);
+            this._groupTransformStartStates = this.selectedObjects.map(o => ({
+              object: o,
+              prev: this._captureTransform(o)
+            }));
+            this._pivotStartState = this._captureTransform(this._pivot);
         }
       } else {
-        // Drag End
         if (this.pivotEditMode) {
           const end = this._captureTransform(this._pivot);
-            if (!this._compareTransform(this._pivotDragStart, end)) {
-              this._pushCommand({
-                type: 'groupPivotChange',
-                prev: this._pivotDragStart,
-                next: end
-              });
-            }
+          if (!this._compareTransform(this._pivotDragStart, end)) {
+            this._pushCommand({
+              type: 'groupPivotChange',
+              prev: this._pivotDragStart,
+              next: end
+            });
+          }
           this._pivotDragStart = null;
         } else if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
           const mode = this.transformControls.getMode();
@@ -77,11 +86,13 @@ export class SceneManager {
         this._pivotStartState = null;
       }
     });
+
     this.transformControls.addEventListener('change', () => {
       if (this.transformControls.dragging && this.selectedObjects.length > 1 && !this.pivotEditMode) {
         this._applyPivotLiveTransform();
       }
     });
+
     this.scene.add(this.transformControls);
 
     // Lights
@@ -93,7 +104,6 @@ export class SceneManager {
 
     // Helpers
     const grid = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
-    grid.position.y = 0;
     this.scene.add(grid);
 
     this.axesHelper = new THREE.AxesHelper(1.5);
@@ -109,7 +119,7 @@ export class SceneManager {
     this._clock = new THREE.Clock();
     this._outlineEnabled = true;
 
-    // Pivot
+    // Pivot with independent orientation
     this._pivot = new THREE.Object3D();
     this._pivot.name = '_SelectionPivot';
     this.scene.add(this._pivot);
@@ -122,14 +132,14 @@ export class SceneManager {
     this._groupTransformStartStates = null;
     this._pivotStartState = null;
 
-    // Loaders
+    // Loaders / Exporter
     this.loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
     this.loader.setDRACOLoader(dracoLoader);
     this.exporter = new GLTFExporter();
 
-    // Postprocessing (Outline)
+    // Postprocessing Outline
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
     this.outlinePass = new OutlinePass(new THREE.Vector2(canvas.clientWidth, canvas.clientHeight), this.scene, this.camera);
@@ -209,7 +219,7 @@ export class SceneManager {
     this.redoStack.length = 0;
   }
 
-  /* ---------- Laden ---------- */
+  /* ---------- Load ---------- */
   loadModel(url, nameHint) {
     this.loader.load(
       url,
@@ -234,7 +244,7 @@ export class SceneManager {
     );
   }
 
-  /* ---------- Auswahl + Pivot ---------- */
+  /* ---------- Selection & Pivot ---------- */
   selectObject(obj, additive = false) {
     if (!obj || !this.editableObjects.includes(obj)) {
       if (!additive) this.clearSelection();
@@ -275,13 +285,15 @@ export class SceneManager {
       this.axesHelper.position.copy(only.position);
       this.controls.target.copy(only.position);
     } else {
+      // Multi: pivot position = center; keep existing rotation unless first time
       const center = new THREE.Vector3();
       this.selectedObjects.forEach(o => center.add(o.position));
       center.multiplyScalar(1 / this.selectedObjects.length);
-      if (!this.pivotEditMode) {
+      if (!this.pivotEditMode && this._pivotDragStart == null) {
+        // Nur bei erster Erstellung die Position setzen
         this._pivot.position.copy(center);
-        this._pivot.rotation.set(0,0,0);
-        this._pivot.scale.set(1,1,1);
+      }
+      if (!this.pivotEditMode) {
         this.transformControls.attach(this._pivot);
       }
       this.axesHelper.visible = true;
@@ -294,13 +306,12 @@ export class SceneManager {
   }
 
   togglePivotEdit() {
-    if (this.selectedObjects.length < 2) return false; // Pivot nur sinnvoll bei Multi-Select
+    if (this.selectedObjects.length < 2) return false;
     this.pivotEditMode = !this.pivotEditMode;
     if (this.pivotEditMode) {
-      // TransformControls nur Pivot bewegen
       this.transformControls.attach(this._pivot);
     } else {
-      // Nach Ende: Auswahl wieder normal an Pivot koppeln
+      // Nach Ende bleibt Orientierung erhalten
       this.transformControls.attach(this._pivot);
     }
     return this.pivotEditMode;
@@ -317,9 +328,10 @@ export class SceneManager {
     if (mode === 'translate') {
       this.selectedObjects.forEach(o => o.position.add(deltaPos));
     } else if (mode === 'rotate') {
+      // Relative rotation using pivot orientation delta
       const qPrev = new THREE.Quaternion().setFromEuler(this._pivotStartState.rotation);
       const qCurr = new THREE.Quaternion().setFromEuler(this._pivot.rotation);
-      const qDelta = qPrev.inverse().multiply(qCurr);
+      const qDelta = qPrev.clone().invert().multiply(qCurr);
       this.selectedObjects.forEach(o => {
         const offset = o.position.clone().sub(pivotPrev);
         offset.applyQuaternion(qDelta);
@@ -360,7 +372,7 @@ export class SceneManager {
     this.controls.update();
   }
 
-  /* ---------- Aktionen ---------- */
+  /* ---------- Actions ---------- */
   duplicateSelected() {
     if (this.selectedObjects.length === 0) return [];
     const newObjects = this.selectedObjects.map(src => {
@@ -387,7 +399,11 @@ export class SceneManager {
       if (idx >= 0) this.editableObjects.splice(idx, 1);
       this.scene.remove(obj);
     });
-    this._pushCommand({ type: 'groupDelete', objects: toDelete, prevStates: toDelete.map(o => this._captureTransform(o)) });
+    this._pushCommand({
+      type: 'groupDelete',
+      objects: toDelete,
+      prevStates: toDelete.map(o => this._captureTransform(o))
+    });
     this.selectedObjects = [];
     this._updateSelectionVisuals();
   }
@@ -406,7 +422,11 @@ export class SceneManager {
       this._pushCommand({
         type: 'groupTransform',
         mode: 'snap',
-        items: this.selectedObjects.map((o, i) => ({ object: o, prev: beforeStates[i], next: afterStates[i] }))
+        items: this.selectedObjects.map((o, i) => ({
+          object: o,
+          prev: beforeStates[i],
+          next: afterStates[i]
+        }))
       });
       this.onTransformChange?.();
       this._fireSceneUpdate();
@@ -418,7 +438,6 @@ export class SceneManager {
     return this._outlineEnabled;
   }
 
-  /* ---------- UI Einzel-Transform ---------- */
   updateSelectedTransform(pos, rotDeg, scale) {
     if (this.selectedObjects.length !== 1) return;
     const obj = this.selectedObjects[0];
@@ -448,6 +467,7 @@ export class SceneManager {
     if (this.undoStack.length === 0) return;
     const cmd = this.undoStack.pop();
     this.redoStack.push(cmd);
+
     switch(cmd.type) {
       case 'groupAdd':
         cmd.objects.forEach(o => {
@@ -489,6 +509,7 @@ export class SceneManager {
     if (this.redoStack.length === 0) return;
     const cmd = this.redoStack.pop();
     this.undoStack.push(cmd);
+
     switch(cmd.type) {
       case 'groupAdd':
         cmd.objects.forEach(o => {
