@@ -7,27 +7,28 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import { PMREMGenerator } from 'three';
 
-/**
- * Erweiterter SceneManager:
- * - Multi-Select mit unabhängigem Pivot (Position + Rotation + Scale)
- * - Pivot-Edit-Modus (P)
- * - Group Transform mit Undo/Redo
- * - Box-Selection kompatibel
- */
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x000000);
+    this.scene.background = new THREE.Color(0x0d1117); // etwas heller als tiefschwarz
 
-    this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 500);
+    this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 800);
     this.camera.position.set(0, 1.6, 4);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+
+    // PBR / Farbmanagement
+    this.renderer.outputEncoding = THREE.sRGBEncoding;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.1; // leicht erhöht für hellere Darstellung
+    this.renderer.shadowMap.enabled = false; // kannst du später auf true setzen (dann auch Licht-Schatten konfigurieren)
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -45,14 +46,13 @@ export class SceneManager {
       this.controls.enabled = !e.value;
       if (e.value) {
         if (this.pivotEditMode) {
-          // Drag start for pivot edit
           this._pivotDragStart = this._captureTransform(this._pivot);
         } else if (this.selectedObjects.length > 0) {
-            this._groupTransformStartStates = this.selectedObjects.map(o => ({
-              object: o,
-              prev: this._captureTransform(o)
-            }));
-            this._pivotStartState = this._captureTransform(this._pivot);
+          this._groupTransformStartStates = this.selectedObjects.map(o => ({
+            object: o,
+            prev: this._captureTransform(o)
+          }));
+          this._pivotStartState = this._captureTransform(this._pivot);
         }
       } else {
         if (this.pivotEditMode) {
@@ -95,18 +95,18 @@ export class SceneManager {
 
     this.scene.add(this.transformControls);
 
-    // Lights
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x394053, 0.9);
-    this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(6, 12, 8);
-    this.scene.add(dir);
+    // Lighting Profile
+    this.currentLightProfile = 'studio';
+    this._lights = [];
+    this._applyLightingProfile(this.currentLightProfile); // Standardlicht wie “Aero Studio”
 
-    // Helpers
-    const grid = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
+    // Optionales Floor-Grid (leicht heller)
+    const grid = new THREE.GridHelper(50, 50, 0x505b66, 0x2c3137);
+    grid.material.opacity = 0.55;
+    grid.material.transparent = true;
     this.scene.add(grid);
 
-    this.axesHelper = new THREE.AxesHelper(1.5);
+    this.axesHelper = new THREE.AxesHelper(1.2);
     this.axesHelper.visible = false;
     this.scene.add(this.axesHelper);
 
@@ -119,7 +119,7 @@ export class SceneManager {
     this._clock = new THREE.Clock();
     this._outlineEnabled = true;
 
-    // Pivot with independent orientation
+    // Pivot
     this._pivot = new THREE.Object3D();
     this._pivot.name = '_SelectionPivot';
     this.scene.add(this._pivot);
@@ -132,12 +132,15 @@ export class SceneManager {
     this._groupTransformStartStates = null;
     this._pivotStartState = null;
 
-    // Loaders / Exporter
+    // Loader / Exporter
     this.loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
     this.loader.setDRACOLoader(dracoLoader);
     this.exporter = new GLTFExporter();
+
+    // Environment (neutral)
+    this._setupNeutralEnvironment();
 
     // Postprocessing Outline
     this.composer = new EffectComposer(this.renderer);
@@ -157,7 +160,6 @@ export class SceneManager {
     this.onSelectionChange = () => {};
     this.onTransformChange = () => {};
 
-    // Render Loop
     const animate = () => {
       requestAnimationFrame(animate);
       const delta = this._clock.getDelta();
@@ -172,6 +174,77 @@ export class SceneManager {
     animate();
 
     window.addEventListener('resize', () => this._handleResize());
+  }
+
+  /* ---------- Lighting Profiles ---------- */
+  _clearLights() {
+    this._lights.forEach(l => this.scene.remove(l));
+    this._lights = [];
+  }
+
+  _applyLightingProfile(profile) {
+    this._clearLights();
+
+    if (profile === 'studio') {
+      // Soft hemisphere + key + rim + fill
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x1f2530, 0.85);
+      const key = new THREE.DirectionalLight(0xffffff, 1.15);
+      key.position.set(4, 6, 4);
+      const fill = new THREE.DirectionalLight(0xbcc7d8, 0.35);
+      fill.position.set(-5, 3, -2);
+      const rim = new THREE.DirectionalLight(0x99bbff, 0.5);
+      rim.position.set(-2, 5, 6);
+
+      const ambient = new THREE.AmbientLight(0x404040, 0.25);
+
+      [hemi, key, fill, rim, ambient].forEach(l => {
+        l.castShadow = false;
+        this.scene.add(l);
+        this._lights.push(l);
+      });
+    } else if (profile === 'neutral') {
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.6);
+      this.scene.add(ambient, hemi);
+      this._lights.push(ambient, hemi);
+    } else if (profile === 'bright') {
+      const hemi = new THREE.HemisphereLight(0xffffff, 0xbdd2ff, 1.0);
+      const key = new THREE.DirectionalLight(0xffffff, 1.4);
+      key.position.set(5, 8, 3);
+      const fill = new THREE.DirectionalLight(0xe0ecff, 0.6);
+      fill.position.set(-5, 4, -3);
+      [hemi, key, fill].forEach(l => this.scene.add(l));
+      this._lights.push(hemi, key, fill);
+      this.renderer.toneMappingExposure = 1.15;
+    }
+
+    this.currentLightProfile = profile;
+  }
+
+  cycleLightProfile() {
+    const order = ['studio', 'neutral', 'bright'];
+    const next = order[(order.indexOf(this.currentLightProfile) + 1) % order.length];
+    this._applyLightingProfile(next);
+    return next;
+  }
+
+  /* ---------- Neutral Environment HDR (placeholder) ---------- */
+  _setupNeutralEnvironment() {
+    // Wenn du ein echtes HDR equirectangular laden willst, ersetze diesen Generator durch Loader:
+    // const loader = new THREE.RGBELoader(); loader.load('pfad/zum/hdr.hdr', hdr => { ... });
+    const pmrem = new PMREMGenerator(this.renderer);
+    pmrem.compileEquirectangularShader();
+
+    const tempScene = new THREE.Scene();
+    const dummy = new THREE.Mesh(
+      new THREE.BoxGeometry(1,1,1),
+      new THREE.MeshStandardMaterial({ metalness:0, roughness:1 })
+    );
+    tempScene.add(dummy);
+
+    // Wir erzeugen einfache neutrale Umgebung über eine geclonte CubeUV Map
+    const envRT = pmrem.fromScene(tempScene, 0.5);
+    this.scene.environment = envRT.texture;
   }
 
   /* ---------- Utility ---------- */
@@ -226,6 +299,18 @@ export class SceneManager {
       gltf => {
         const root = gltf.scene;
         root.traverse(o => { o.userData.isEditable = true; });
+
+        // Falls Material sehr dunkel (z.B. metallic 1, roughness 1) – optional heuristik:
+        root.traverse(o => {
+          if (o.isMesh && o.material) {
+            // Minimale Helligkeitsgarantie
+            if (o.material.color && o.material.color.getHex() === 0x000000) {
+              o.material.color.setHex(0x222931);
+            }
+            o.material.needsUpdate = true;
+          }
+        });
+
         if (gltf.animations?.length) {
           this.modelAnimationMap.set(root, { clips: gltf.animations });
           const mixer = new THREE.AnimationMixer(root);
@@ -285,12 +370,10 @@ export class SceneManager {
       this.axesHelper.position.copy(only.position);
       this.controls.target.copy(only.position);
     } else {
-      // Multi: pivot position = center; keep existing rotation unless first time
       const center = new THREE.Vector3();
       this.selectedObjects.forEach(o => center.add(o.position));
       center.multiplyScalar(1 / this.selectedObjects.length);
       if (!this.pivotEditMode && this._pivotDragStart == null) {
-        // Nur bei erster Erstellung die Position setzen
         this._pivot.position.copy(center);
       }
       if (!this.pivotEditMode) {
@@ -311,13 +394,11 @@ export class SceneManager {
     if (this.pivotEditMode) {
       this.transformControls.attach(this._pivot);
     } else {
-      // Nach Ende bleibt Orientierung erhalten
       this.transformControls.attach(this._pivot);
     }
     return this.pivotEditMode;
   }
 
-  /* ---------- Multi-Live Transform ---------- */
   _applyPivotLiveTransform() {
     if (!this._pivotStartState || !this._pivot || this.selectedObjects.length < 2 || this.pivotEditMode) return;
     const mode = this.transformControls.getMode();
@@ -328,7 +409,6 @@ export class SceneManager {
     if (mode === 'translate') {
       this.selectedObjects.forEach(o => o.position.add(deltaPos));
     } else if (mode === 'rotate') {
-      // Relative rotation using pivot orientation delta
       const qPrev = new THREE.Quaternion().setFromEuler(this._pivotStartState.rotation);
       const qCurr = new THREE.Quaternion().setFromEuler(this._pivot.rotation);
       const qDelta = qPrev.clone().invert().multiply(qCurr);
@@ -357,6 +437,10 @@ export class SceneManager {
     const next = order[(order.indexOf(mode) + 1) % order.length];
     this.transformControls.setMode(next);
     return next;
+  }
+
+  cycleLightProfile() {
+    return this.cycleLightProfile(); // (bereits definiert oben – falls du über app.js triggern willst)
   }
 
   focusSelected() {
@@ -620,4 +704,6 @@ export class SceneManager {
     return [merged];
   }
 }
+
+// Default-Export zusätzlich (falls irgendwo default import verwendet wird)
 export default SceneManager;
