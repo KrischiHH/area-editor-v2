@@ -7,14 +7,12 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
-import { PMREMGenerator } from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
 
-    // Hintergrund etwas heller als schwarz
+    // Hintergrund leicht heller als schwarz, damit Grid sichtbar bleibt
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0d1117);
 
@@ -25,19 +23,18 @@ export class SceneManager {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-    // Farbmanagement (aktuelle Three-Versionen)
+    // Aktuelles Farbmanagement
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.45; // bewusst etwas heller
-
+    this.renderer.toneMappingExposure = 1.25; // moderat hell für "aero-simple"
     this.renderer.shadowMap.enabled = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Orbit Controls – klassisches Verhalten
+    // Orbit Controls – klassisch
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.1;
-    this.controls.screenSpacePanning = false; // klassisches Panning
+    this.controls.screenSpacePanning = false;
     this.controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.DOLLY,
@@ -57,7 +54,6 @@ export class SceneManager {
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.transformControls.setSize(1.0);
     this.transformControls.addEventListener('dragging-changed', e => {
-      // Während Gizmo-Drag OrbitControls deaktivieren
       this.controls.enabled = !e.value;
       if (e.value) {
         if (this.pivotEditMode) {
@@ -73,11 +69,7 @@ export class SceneManager {
         if (this.pivotEditMode) {
           const end = this._captureTransform(this._pivot);
           if (!this._compareTransform(this._pivotDragStart, end)) {
-            this._pushCommand({
-              type: 'groupPivotChange',
-              prev: this._pivotDragStart,
-              next: end
-            });
+            this._pushCommand({ type: 'groupPivotChange', prev: this._pivotDragStart, next: end });
           }
           this._pivotDragStart = null;
         } else if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
@@ -89,11 +81,7 @@ export class SceneManager {
           }));
           const changed = items.some(i => !this._compareTransform(i.prev, i.next));
           if (changed) {
-            this._pushCommand({
-              type: 'groupTransform',
-              mode,
-              items
-            });
+            this._pushCommand({ type: 'groupTransform', mode, items });
             this.onTransformChange?.();
           }
         }
@@ -108,18 +96,17 @@ export class SceneManager {
     });
     this.scene.add(this.transformControls);
 
-    // Licht – helles Studio-Setup
-    this.currentLightProfile = 'studio';
+    // Lichtprofile: neues "aero-simple" als Standard
+    this.currentLightProfile = 'aero-simple';
     this._lights = [];
     this._applyLightingProfile(this.currentLightProfile);
 
-    // Helleres Grid
+    // Einfacheres Grid, etwas heller
     const grid = new THREE.GridHelper(50, 50, 0x7c8896, 0x3c434b);
     grid.material.opacity = 0.75;
     grid.material.transparent = true;
     this.scene.add(grid);
 
-    // Achsen-Helfer
     this.axesHelper = new THREE.AxesHelper(1.3);
     this.axesHelper.visible = false;
     this.scene.add(this.axesHelper);
@@ -153,8 +140,8 @@ export class SceneManager {
     this.loader.setDRACOLoader(dracoLoader);
     this.exporter = new GLTFExporter();
 
-    // Environment (neutral, hell), keine sigma-Warnungen
-    this._setupRoomEnvironment();
+    // KEIN Environment-Reflexions-Setup im aero-simple (wie Aero: clean lighting)
+    // Falls du HDR willst, stelle auf "studio"/"neutral"/"bright" um.
 
     // Postprocessing Outline
     this.composer = new EffectComposer(this.renderer);
@@ -200,25 +187,35 @@ export class SceneManager {
   _applyLightingProfile(profile) {
     this._clearLights();
 
-    if (profile === 'studio') {
-      // Helles, weiches Studio-Setup
+    if (profile === 'aero-simple') {
+      // Sehr einfache, helle Beleuchtung (ähnlich Aero): Ambient + Directional Key (+ leichtes Fill)
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      const key = new THREE.DirectionalLight(0xffffff, 1.2);
+      key.position.set(4, 6, 3);
+      const fill = new THREE.DirectionalLight(0xffffff, 0.35);
+      fill.position.set(-5, 3, -2);
+      [ambient, key, fill].forEach(l => this.scene.add(l));
+      this._lights.push(ambient, key, fill);
+      // Kein scene.environment (keine Reflexionen)
+      this.scene.environment = null;
+      this.renderer.toneMappingExposure = 1.25;
+    } else if (profile === 'studio') {
       const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05);
       const key = new THREE.DirectionalLight(0xffffff, 1.55);
       key.position.set(5, 7, 4);
       const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85);
       fill.position.set(-6, 4, -3);
       const ambient = new THREE.AmbientLight(0xffffff, 0.45);
-      [hemi, key, fill, ambient].forEach(l => {
-        l.castShadow = false;
-        this.scene.add(l);
-        this._lights.push(l);
-      });
-      this.renderer.toneMappingExposure = 1.45;
+      [hemi, key, fill, ambient].forEach(l => this.scene.add(l));
+      this._lights.push(hemi, key, fill, ambient);
+      this.scene.environment = null; // Studio ohne Environment für klaren Look
+      this.renderer.toneMappingExposure = 1.35;
     } else if (profile === 'neutral') {
       const ambient = new THREE.AmbientLight(0xffffff, 0.85);
       const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.85);
       this.scene.add(ambient, hemi);
       this._lights.push(ambient, hemi);
+      this.scene.environment = null;
       this.renderer.toneMappingExposure = 1.3;
     } else if (profile === 'bright') {
       const hemi = new THREE.HemisphereLight(0xffffff, 0xbdd2ff, 1.3);
@@ -228,6 +225,7 @@ export class SceneManager {
       fill.position.set(-6, 5, -4);
       [hemi, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(hemi, key, fill);
+      this.scene.environment = null;
       this.renderer.toneMappingExposure = 1.6;
     }
 
@@ -235,17 +233,10 @@ export class SceneManager {
   }
 
   cycleLightProfile() {
-    const order = ['studio', 'neutral', 'bright'];
+    const order = ['aero-simple', 'studio', 'neutral', 'bright'];
     const next = order[(order.indexOf(this.currentLightProfile) + 1) % order.length];
     this._applyLightingProfile(next);
     return next;
-  }
-
-  /* ---------- RoomEnvironment ---------- */
-  _setupRoomEnvironment() {
-    const pmrem = new PMREMGenerator(this.renderer);
-    const envRT = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02); // leichtes Blur
-    this.scene.environment = envRT.texture;
   }
 
   /* ---------- Utility ---------- */
@@ -301,12 +292,10 @@ export class SceneManager {
         const root = gltf.scene;
         root.traverse(o => { o.userData.isEditable = true; });
 
-        // Notfalls minimal heller färben, wenn reines Schwarz vorkommt
+        // Notfalls minimale Helligkeitsgarantie für pechschwarze Materialien
         root.traverse(o => {
-          if (o.isMesh && o.material) {
-            if (o.material.color && o.material.color.getHex() === 0x000000) {
-              o.material.color.setHex(0x222931);
-            }
+          if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x000000) {
+            o.material.color.setHex(0x222931);
             o.material.needsUpdate = true;
           }
         });
@@ -547,7 +536,6 @@ export class SceneManager {
     if (this.undoStack.length === 0) return;
     const cmd = this.undoStack.pop();
     this.redoStack.push(cmd);
-
     switch(cmd.type) {
       case 'groupAdd':
         cmd.objects.forEach(o => {
@@ -589,7 +577,6 @@ export class SceneManager {
     if (this.redoStack.length === 0) return;
     const cmd = this.redoStack.pop();
     this.undoStack.push(cmd);
-
     switch(cmd.type) {
       case 'groupAdd':
         cmd.objects.forEach(o => {
