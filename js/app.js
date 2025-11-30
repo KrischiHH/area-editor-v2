@@ -25,8 +25,8 @@ function classifyAsset(file) {
 }
 function formatBytes(bytes) {
   if (!bytes && bytes !== 0) return '';
-  const units = ['B','KB','MB','GB']; let i = 0; let v = bytes;
-  while (v >= 1024 && i < units.length-1) { v/=1024; i++; }
+  const units = ['B','KB','MB','GB']; let i=0; let v=bytes;
+  while (v>=1024 && i<units.length-1){ v/=1024; i++; }
   return v.toFixed(v<10?2:1)+' '+units[i];
 }
 
@@ -153,8 +153,8 @@ let isMarquee=false;
 let marqueeStart={x:0,y:0};
 let marqueeCurrent={x:0,y:0};
 let marqueeAppend=false;
-const MARQUEE_THRESHOLD=8; // px Mindestbewegung damit Box-Select startet
-let marqueeCandidate=false; // nur "Kandidat" bis Threshold erreicht ist
+const MARQUEE_THRESHOLD=8;
+let marqueeCandidate=false;
 
 function beginMarqueeCandidate(x,y,append){
   marqueeCandidate=true;
@@ -185,12 +185,10 @@ function updateMarquee(x,y){
 function endMarquee(){
   const box=ensureSelectionOverlay();
   box.style.display='none';
-
-  if(!isMarquee){ // Kein echter Marquee gestartet → nichts tun
+  if(!isMarquee){
     marqueeCandidate=false;
     return;
   }
-
   isMarquee=false;
   marqueeCandidate=false;
 
@@ -273,18 +271,15 @@ function init(){
     }
   });
 
-  // Box-Selection / Canvas interactions
-  // Änderung: Box-Selection NUR mit Shift+Linksklick-Drag auf Canvas-Hintergrund und erst ab Threshold.
+  // Box-Selection nur mit Modifier (Shift/Ctrl/Meta) – LMB ohne Modifier bleibt Orbit
   canvas.addEventListener('mousedown', e=>{
     if(e.button===2) return; // Kontextmenü separat
-    if(e.button!==0) return; // nur linke Taste
-    if(e.target!==canvas) return; // nicht auf UI-Elementen oder Gizmo
-    // Box-Selection nur mit Shift (oder Ctrl/Meta als additive Auswahl)
+    if(e.button!==0) return;
+    if(e.target!==canvas) return;
     const append = e.shiftKey || e.ctrlKey || e.metaKey;
     if(append && !e.altKey){
       beginMarqueeCandidate(e.clientX, e.clientY, append);
     } else {
-      // Kein Marquee-Kandidat → OrbitControls übernehmen (Standard)
       marqueeCandidate=false;
     }
   });
@@ -297,6 +292,13 @@ function init(){
   window.addEventListener('mouseup', e=>{
     if(isMarquee || marqueeCandidate){
       endMarquee();
+    }
+  });
+
+  // Deselect per Doppelklick in leeren Canvas
+  canvas.addEventListener('dblclick', e=>{
+    if(e.target===canvas){
+      sceneManager.clearSelection();
     }
   });
 
@@ -373,7 +375,7 @@ function init(){
     audioState.loop=!!chkAudioLoop?.checked;
     audioState.delaySeconds=parseFloat(inpAudioDelay?.value)||0;
     const v=parseFloat(inpAudioVol?.value);
-    audioState.volume=Number.isFinite(v)? Math.min(1, Math.max(0, v)) : 0.8;
+    audioState.volume=Number.isFinite(v)? Math.min(1, Math.max(0,v)) : 0.8;
     sceneManager.setAudioConfig(audioState);
   }
   [selAudioFile,chkAudioLoop,inpAudioDelay,inpAudioVol].forEach(el=>el&&el.addEventListener('input',syncAudio));
@@ -388,7 +390,7 @@ function init(){
     }
     sceneManager.editableObjects.forEach(obj=>{
       const li=document.createElement('li');
-      li.textContent=obj.name||'Unbenanntes Objekt';
+      li.textContent=obj.name || 'Unbenanntes Objekt';
       if(sceneManager.selectedObjects.includes(obj)) li.classList.add('selected');
       li.addEventListener('click', e=>{
         sceneManager.selectObject(obj, e.shiftKey || e.ctrlKey || e.metaKey);
