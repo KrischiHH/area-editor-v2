@@ -8,13 +8,15 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import { PMREMGenerator } from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
 
+    // Hintergrund bewusst etwas heller als True-Black
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0d1117); // etwas heller als tiefschwarz
+    this.scene.background = new THREE.Color(0x0d1117);
 
     this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 800);
     this.camera.position.set(0, 1.6, 4);
@@ -23,13 +25,15 @@ export class SceneManager {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-    // PBR / Farbmanagement
-    this.renderer.outputEncoding = THREE.sRGBEncoding;
+    // Modernes Farbmanagement (Three r160+)
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1; // leicht erhöht für hellere Darstellung
-    this.renderer.shadowMap.enabled = false; // kannst du später auf true setzen (dann auch Licht-Schatten konfigurieren)
+    this.renderer.toneMappingExposure = 1.35; // etwas heller als Standard
+
+    this.renderer.shadowMap.enabled = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+    // Orbit Controls
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
@@ -40,6 +44,7 @@ export class SceneManager {
     this.controls.target.set(0, 1.0, 0);
     this.controls.update();
 
+    // Transform Controls
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.transformControls.setSize(1.0);
     this.transformControls.addEventListener('dragging-changed', e => {
@@ -86,26 +91,25 @@ export class SceneManager {
         this._pivotStartState = null;
       }
     });
-
     this.transformControls.addEventListener('change', () => {
       if (this.transformControls.dragging && this.selectedObjects.length > 1 && !this.pivotEditMode) {
         this._applyPivotLiveTransform();
       }
     });
-
     this.scene.add(this.transformControls);
 
-    // Lighting Profile
+    // Licht (Standard “Studio” – heller)
     this.currentLightProfile = 'studio';
     this._lights = [];
-    this._applyLightingProfile(this.currentLightProfile); // Standardlicht wie “Aero Studio”
+    this._applyLightingProfile(this.currentLightProfile);
 
-    // Optionales Floor-Grid (leicht heller)
-    const grid = new THREE.GridHelper(50, 50, 0x505b66, 0x2c3137);
-    grid.material.opacity = 0.55;
+    // Helleres Grid
+    const grid = new THREE.GridHelper(50, 50, 0x6b7785, 0x343b43);
+    grid.material.opacity = 0.7;
     grid.material.transparent = true;
     this.scene.add(grid);
 
+    // Achsen-Helfer
     this.axesHelper = new THREE.AxesHelper(1.2);
     this.axesHelper.visible = false;
     this.scene.add(this.axesHelper);
@@ -139,8 +143,8 @@ export class SceneManager {
     this.loader.setDRACOLoader(dracoLoader);
     this.exporter = new GLTFExporter();
 
-    // Environment (neutral)
-    this._setupNeutralEnvironment();
+    // Environment (RoomEnvironment → neutral und ausreichend hell)
+    this._setupRoomEnvironment();
 
     // Postprocessing Outline
     this.composer = new EffectComposer(this.renderer);
@@ -160,6 +164,7 @@ export class SceneManager {
     this.onSelectionChange = () => {};
     this.onTransformChange = () => {};
 
+    // Render Loop
     const animate = () => {
       requestAnimationFrame(animate);
       const delta = this._clock.getDelta();
@@ -186,36 +191,36 @@ export class SceneManager {
     this._clearLights();
 
     if (profile === 'studio') {
-      // Soft hemisphere + key + rim + fill
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x1f2530, 0.85);
-      const key = new THREE.DirectionalLight(0xffffff, 1.15);
-      key.position.set(4, 6, 4);
-      const fill = new THREE.DirectionalLight(0xbcc7d8, 0.35);
-      fill.position.set(-5, 3, -2);
-      const rim = new THREE.DirectionalLight(0x99bbff, 0.5);
-      rim.position.set(-2, 5, 6);
-
-      const ambient = new THREE.AmbientLight(0x404040, 0.25);
-
+      // Helles, weiches Studio-Setup
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.0);
+      const key = new THREE.DirectionalLight(0xffffff, 1.45);
+      key.position.set(5, 7, 4);
+      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.75);
+      fill.position.set(-6, 4, -3);
+      const rim = new THREE.DirectionalLight(0xbcd4ff, 0.8);
+      rim.position.set(-3, 6, 6);
+      const ambient = new THREE.AmbientLight(0xffffff, 0.35);
       [hemi, key, fill, rim, ambient].forEach(l => {
         l.castShadow = false;
         this.scene.add(l);
         this._lights.push(l);
       });
+      this.renderer.toneMappingExposure = 1.35;
     } else if (profile === 'neutral') {
-      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.6);
+      const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.8);
       this.scene.add(ambient, hemi);
       this._lights.push(ambient, hemi);
+      this.renderer.toneMappingExposure = 1.2;
     } else if (profile === 'bright') {
-      const hemi = new THREE.HemisphereLight(0xffffff, 0xbdd2ff, 1.0);
-      const key = new THREE.DirectionalLight(0xffffff, 1.4);
-      key.position.set(5, 8, 3);
-      const fill = new THREE.DirectionalLight(0xe0ecff, 0.6);
-      fill.position.set(-5, 4, -3);
+      const hemi = new THREE.HemisphereLight(0xffffff, 0xbdd2ff, 1.2);
+      const key = new THREE.DirectionalLight(0xffffff, 1.8);
+      key.position.set(6, 9, 4);
+      const fill = new THREE.DirectionalLight(0xeaf1ff, 0.9);
+      fill.position.set(-6, 5, -4);
       [hemi, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(hemi, key, fill);
-      this.renderer.toneMappingExposure = 1.15;
+      this.renderer.toneMappingExposure = 1.5;
     }
 
     this.currentLightProfile = profile;
@@ -228,23 +233,12 @@ export class SceneManager {
     return next;
   }
 
-  /* ---------- Neutral Environment HDR (placeholder) ---------- */
-  _setupNeutralEnvironment() {
-    // Wenn du ein echtes HDR equirectangular laden willst, ersetze diesen Generator durch Loader:
-    // const loader = new THREE.RGBELoader(); loader.load('pfad/zum/hdr.hdr', hdr => { ... });
+  /* ---------- RoomEnvironment (keine sigma-Warnungen) ---------- */
+  _setupRoomEnvironment() {
     const pmrem = new PMREMGenerator(this.renderer);
-    pmrem.compileEquirectangularShader();
-
-    const tempScene = new THREE.Scene();
-    const dummy = new THREE.Mesh(
-      new THREE.BoxGeometry(1,1,1),
-      new THREE.MeshStandardMaterial({ metalness:0, roughness:1 })
-    );
-    tempScene.add(dummy);
-
-    // Wir erzeugen einfache neutrale Umgebung über eine geclonte CubeUV Map
-    const envRT = pmrem.fromScene(tempScene, 0.5);
-    this.scene.environment = envRT.texture;
+    const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.03); // kleine blur
+    this.scene.environment = env.texture;
+    // Kein fromScene eigener Dummy mehr → keine sigma-Warnungen
   }
 
   /* ---------- Utility ---------- */
@@ -300,10 +294,9 @@ export class SceneManager {
         const root = gltf.scene;
         root.traverse(o => { o.userData.isEditable = true; });
 
-        // Falls Material sehr dunkel (z.B. metallic 1, roughness 1) – optional heuristik:
+        // Notfalls minimal heller färben, wenn reines Schwarz vorkommt
         root.traverse(o => {
           if (o.isMesh && o.material) {
-            // Minimale Helligkeitsgarantie
             if (o.material.color && o.material.color.getHex() === 0x000000) {
               o.material.color.setHex(0x222931);
             }
@@ -437,10 +430,6 @@ export class SceneManager {
     const next = order[(order.indexOf(mode) + 1) % order.length];
     this.transformControls.setMode(next);
     return next;
-  }
-
-  cycleLightProfile() {
-    return this.cycleLightProfile(); // (bereits definiert oben – falls du über app.js triggern willst)
   }
 
   focusSelected() {
@@ -705,5 +694,4 @@ export class SceneManager {
   }
 }
 
-// Default-Export zusätzlich (falls irgendwo default import verwendet wird)
 export default SceneManager;
