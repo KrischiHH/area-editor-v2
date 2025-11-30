@@ -9,11 +9,13 @@ const CONFIG = {
 };
 
 let sceneManager;
-const assetFiles = new Map();
+const assetFiles = new Map();           // filename -> File
+const assetBlobUrls = new Map();        // filename -> objectURL (nur für Modelle)
 const AUDIO_EXT = ['mp3','ogg','m4a'];
 const VIDEO_EXT = ['mp4','webm'];
 
 function getFileExtension(filename){ return filename.split('.').pop().toLowerCase(); }
+
 function classifyAsset(file) {
   const ext = getFileExtension(file.name);
   if (['glb','gltf','usdz'].includes(ext)) return 'model';
@@ -22,6 +24,7 @@ function classifyAsset(file) {
   if (VIDEO_EXT.includes(ext)) return 'video';
   return 'other';
 }
+
 function formatBytes(bytes) {
   if (!bytes && bytes !== 0) return '';
   const units = ['B','KB','MB','GB'];
@@ -29,6 +32,7 @@ function formatBytes(bytes) {
   while (v >= 1024 && i < units.length-1) { v /= 1024; i++; }
   return v.toFixed(v < 10 ? 2 : 1) + ' ' + units[i];
 }
+
 function rebuildAssetList() {
   const ul = document.getElementById('asset-list');
   ul.innerHTML = '';
@@ -66,18 +70,41 @@ function rebuildAssetList() {
     const btnRemove = document.createElement('button');
     btnRemove.textContent='✕'; btnRemove.title='Asset entfernen';
     btnRemove.onclick = () => {
+      // Revoke Blob URL falls Modell
+      if (assetBlobUrls.has(name)) {
+        URL.revokeObjectURL(assetBlobUrls.get(name));
+        assetBlobUrls.delete(name);
+      }
+
       assetFiles.delete(name);
       rebuildAssetList();
+
+      // Audio-Dropdown Option entfernen + Audio-State synchronisieren
       if (AUDIO_EXT.includes(getFileExtension(name))) {
         const sel = document.getElementById('sel-audio-file');
         [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
         if (sel.value === name) { sel.value=''; sel.dispatchEvent(new Event('input')); }
+        syncAudio(); // WICHTIG: Audio-Konfiguration neu anwenden
       }
     };
     actions.appendChild(btnRemove);
 
     li.appendChild(title); li.appendChild(badge); li.appendChild(sizeEl); li.appendChild(actions); ul.appendChild(li);
   }
+}
+
+function sanitizeUrl(raw) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  try {
+    const u = new URL(trimmed, window.location.origin);
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      return u.href;
+    }
+  } catch(_) {
+    // ungültig
+  }
+  return ''; // verwerfen, wenn nicht http/https
 }
 
 function handleFiles(files){
@@ -88,18 +115,29 @@ function handleFiles(files){
       if (assetFiles.has(assetName)) {
         const overwrite = confirm(`Datei "${assetName}" existiert schon. Überschreiben?`);
         if (!overwrite) continue;
+
+        // Alte Blob URL bei Modell entfernen
+        if (assetBlobUrls.has(assetName)) {
+          URL.revokeObjectURL(assetBlobUrls.get(assetName));
+          assetBlobUrls.delete(assetName);
+        }
       }
       assetFiles.set(assetName, file);
+
       if (ext === 'glb' || ext === 'gltf'){
         const blobUrl = URL.createObjectURL(file);
+        assetBlobUrls.set(assetName, blobUrl);
         sceneManager.loadModel(blobUrl, assetName);
       }
       if (AUDIO_EXT.includes(ext)){
         const sel = document.getElementById('sel-audio-file');
         if (sel){
-          const opt = document.createElement('option');
-          opt.value = assetName; opt.textContent = assetName;
-          sel.appendChild(opt);
+          // Option nur hinzufügen wenn nicht bereits vorhanden
+            if (![...sel.options].some(o => o.value === assetName)) {
+              const opt = document.createElement('option');
+              opt.value = assetName; opt.textContent = assetName;
+              sel.appendChild(opt);
+            }
         }
       }
     }
@@ -141,7 +179,8 @@ function init(){
   [selAudioFile, chkAudioLoop, inpAudioDelay, inpAudioVol].forEach(el => el && el.addEventListener('input', syncAudio));
   syncAudio();
 
-  sceneManager.onSceneUpdate = () => {
+  // Objektliste separat aktualisieren (kein doppeltes Aufrufen in updatePropsUI)
+  function refreshObjectList(){
     objectList.innerHTML = '';
     if (sceneManager.editableObjects.length === 0){
       objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
@@ -154,6 +193,10 @@ function init(){
       li.onclick = () => sceneManager.selectObject(obj);
       objectList.appendChild(li);
     });
+  }
+
+  sceneManager.onSceneUpdate = () => {
+    refreshObjectList();
   };
 
   const updatePropsUI = () => {
@@ -175,7 +218,6 @@ function init(){
       propEmpty.classList.remove('hidden');
       inpLinkUrl.value = '';
     }
-    sceneManager.onSceneUpdate();
   };
 
   sceneManager.onSelectionChange = updatePropsUI;
@@ -187,13 +229,19 @@ function init(){
     const s = parseFloat(inpScale.value);
     sceneManager.updateSelectedTransform(p,r,s);
     if (sceneManager.selectedObject) sceneManager.selectedObject.name = inpName.value;
-    sceneManager.onSceneUpdate();
+    // Nur Objektliste auffrischen (Properties bleiben aktuell)
+    refreshObjectList();
   }
   [inpName, inpScale, ...Object.values(inpPos), ...Object.values(inpRot)].forEach(el => el.addEventListener('input', applyTransform));
 
   inpLinkUrl.addEventListener('input', () => {
     if (sceneManager.selectedObject){
-      sceneManager.selectedObject.userData.linkUrl = inpLinkUrl.value.trim();
+      const sanitized = sanitizeUrl(inpLinkUrl.value);
+      sceneManager.selectedObject.userData.linkUrl = sanitized;
+      if (sanitized !== inpLinkUrl.value) {
+        // Falls Nutzer etwas Unsicheres eingibt → UI korrigieren
+        inpLinkUrl.value = sanitized;
+      }
     }
   });
 
@@ -268,8 +316,14 @@ function init(){
       }
 
       const uploadAssets = [];
-      const mergedFile = new File([mergedBlob], 'scene.glb', { type: 'model/gltf-binary' });
+      // GLB Datei
+      const mergedFile = new File([mergedBlob], 'scene.glb', { type: 'application/octet-stream' });
       uploadAssets.push(mergedFile);
+
+      // Audio-Datei hinzufügen falls konfiguriert
+      if (audioState.url && assetFiles.has(audioState.url)) {
+        uploadAssets.push(assetFiles.get(audioState.url));
+      }
 
       const result = await publishClient.publish(sceneId, sceneConfig, uploadAssets);
       publishStatus.innerHTML = `✅ <a href="${result.viewerUrl}" target="_blank" rel="noopener">Viewer öffnen</a>`;
