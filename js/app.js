@@ -25,27 +25,30 @@ function classifyAsset(file) {
 }
 function formatBytes(bytes) {
   if (!bytes && bytes !== 0) return '';
-  const units = ['B','KB','MB','GB']; let i = 0; let v = bytes;
-  while (v >= 1024 && i < units.length-1) { v/=1024; i++; }
+  const units = ['B','KB','MB','GB']; let i=0; let v=bytes;
+  while (v>=1024 && i<units.length-1){ v/=1024; i++; }
   return v.toFixed(v<10?2:1)+' '+units[i];
 }
+
 function rebuildAssetList() {
-  const ul = document.getElementById('asset-list');
-  if (!ul) return;
-  ul.innerHTML = '';
-  if (assetFiles.size === 0) {
+  const ul=document.getElementById('asset-list');
+  if(!ul) return;
+  ul.innerHTML='';
+  if(assetFiles.size===0){
     ul.innerHTML='<li class="empty">Noch keine Assets</li>';
     return;
   }
-  for (const [name,file] of assetFiles.entries()) {
+  for(const [name,file] of assetFiles.entries()){
     const li=document.createElement('li');
     const type=classifyAsset(file);
     const title=document.createElement('div'); title.textContent=name;
     const badge=document.createElement('span'); badge.className='asset-type'; badge.textContent=type;
-    const sizeEl=document.createElement('span'); sizeEl.style.fontSize='10px'; sizeEl.style.color='var(--text-muted)'; sizeEl.textContent=formatBytes(file.size);
+    const sizeEl=document.createElement('span');
+    sizeEl.style.fontSize='10px'; sizeEl.style.color='var(--text-muted)';
+    sizeEl.textContent=formatBytes(file.size);
     const actions=document.createElement('div'); actions.className='asset-actions';
 
-    if (type==='audio') {
+    if(type==='audio'){
       const btnAudio=document.createElement('button');
       btnAudio.textContent='▶'; btnAudio.title='Audio-Vorschau'; btnAudio.className='audio-preview-btn';
       let audioObj=null;
@@ -73,7 +76,7 @@ function rebuildAssetList() {
       }
       assetFiles.delete(name);
       rebuildAssetList();
-      if (AUDIO_EXT.includes(getFileExtension(name))) {
+      if(AUDIO_EXT.includes(getFileExtension(name))){
         const sel=document.getElementById('sel-audio-file');
         if(sel){
           [...sel.options].forEach(o=>{ if(o.value===name) o.remove(); });
@@ -87,6 +90,7 @@ function rebuildAssetList() {
     ul.appendChild(li);
   }
 }
+
 function sanitizeUrl(raw){
   const trimmed=(raw||'').trim();
   if(!trimmed) return '';
@@ -96,6 +100,7 @@ function sanitizeUrl(raw){
   } catch(_) {}
   return '';
 }
+
 function handleFiles(files){
   for(const file of files){
     const ext=getFileExtension(file.name);
@@ -128,26 +133,22 @@ function handleFiles(files){
   rebuildAssetList();
 }
 
-/* ---------- Box Selection Overlay ---------- */
+/* ---------- Selection Marquee ---------- */
 function ensureSelectionOverlay(){
   let el=document.getElementById('selection-marquee');
   if(!el){
     el=document.createElement('div');
     el.id='selection-marquee';
-    Object.assign(el.style,{
-      position:'fixed',
-      border:'1px dashed #4da6ff',
-      background:'rgba(77,166,255,0.15)',
-      pointerEvents:'none',
-      zIndex:'9999',
-      display:'none'
-    });
+    el.style.position='fixed';
+    el.style.border='1px dashed #4da6ff';
+    el.style.background='rgba(77,166,255,0.15)';
+    el.style.pointerEvents='none';
+    el.style.zIndex='9999';
+    el.style.display='none';
     document.body.appendChild(el);
   }
   return el;
 }
-
-/* ---------- Box Selection Logic ---------- */
 let isMarquee=false;
 let marqueeStart={x:0,y:0};
 let marqueeCurrent={x:0,y:0};
@@ -156,62 +157,123 @@ function beginMarquee(x,y){
   isMarquee=true;
   marqueeStart.x=x; marqueeStart.y=y;
   const box=ensureSelectionOverlay();
-  box.style.left=x+'px';
-  box.style.top=y+'px';
-  box.style.width='0px';
-  box.style.height='0px';
-  box.style.display='block';
+  Object.assign(box.style,{left:x+'px',top:y+'px',width:'0px',height:'0px',display:'block'});
 }
+
 function updateMarquee(x,y){
   marqueeCurrent.x=x; marqueeCurrent.y=y;
   const box=ensureSelectionOverlay();
-  const minX=Math.min(marqueeStart.x, x);
-  const minY=Math.min(marqueeStart.y, y);
+  const minX=Math.min(marqueeStart.x,x);
+  const minY=Math.min(marqueeStart.y,y);
   const w=Math.abs(x - marqueeStart.x);
   const h=Math.abs(y - marqueeStart.y);
-  box.style.left=minX+'px';
-  box.style.top=minY+'px';
-  box.style.width=w+'px';
-  box.style.height=h+'px';
+  Object.assign(box.style,{left:minX+'px',top:minY+'px',width:w+'px',height:h+'px'});
 }
+
 function endMarquee(append=false){
   if(!isMarquee) return;
   isMarquee=false;
   const box=ensureSelectionOverlay();
   box.style.display='none';
 
-  // Bestimmungsrechteck
   const x1=Math.min(marqueeStart.x, marqueeCurrent.x);
   const y1=Math.min(marqueeStart.y, marqueeCurrent.y);
   const x2=Math.max(marqueeStart.x, marqueeCurrent.x);
   const y2=Math.max(marqueeStart.y, marqueeCurrent.y);
 
-  // Alle Objekte screen-projizieren
   const newly=[];
   sceneManager.editableObjects.forEach(obj=>{
-    const v=obj.position.clone();
-    v.project(sceneManager.camera);
-    const sx=(v.x*0.5+0.5)*window.innerWidth;
-    const sy=( -v.y*0.5+0.5)*window.innerHeight;
-    if(sx>=x1 && sx<=x2 && sy>=y1 && sy<=y2){
+    const bb=new THREE.Box3().setFromObject(obj);
+    if(!isFinite(bb.min.x)||!isFinite(bb.max.x)) return;
+    const corners=[
+      new THREE.Vector3(bb.min.x, bb.min.y, bb.min.z),
+      new THREE.Vector3(bb.min.x, bb.min.y, bb.max.z),
+      new THREE.Vector3(bb.min.x, bb.max.y, bb.min.z),
+      new THREE.Vector3(bb.min.x, bb.max.y, bb.max.z),
+      new THREE.Vector3(bb.max.x, bb.min.y, bb.min.z),
+      new THREE.Vector3(bb.max.x, bb.min.y, bb.max.z),
+      new THREE.Vector3(bb.max.x, bb.max.y, bb.min.z),
+      new THREE.Vector3(bb.max.x, bb.max.y, bb.max.z)
+    ];
+    let inside=false;
+    for(const c of corners){
+      const v=c.clone().project(sceneManager.camera);
+      const sx=(v.x*0.5+0.5)*window.innerWidth;
+      const sy=(-v.y*0.5+0.5)*window.innerHeight;
+      if(sx>=x1 && sx<=x2 && sy>=y1 && sy<=y2){
+        inside=true; break;
+      }
+    }
+    if(inside){
+      newly.push(obj);
+      return;
+    }
+    // Fallback: Mittelpunkt
+    const center=bb.getCenter(new THREE.Vector3()).project(sceneManager.camera);
+    const csx=(center.x*0.5+0.5)*window.innerWidth;
+    const csy=(-center.y*0.5+0.5)*window.innerHeight;
+    if(csx>=x1 && csx<=x2 && csy>=y1 && csy<=y2){
       newly.push(obj);
     }
   });
 
   if(!append){
-    sceneManager.selectedObjects = newly;
+    sceneManager.selectedObjects=newly;
   } else {
-    // Toggle Additive
     newly.forEach(o=>{
-      if(sceneManager.selectedObjects.includes(o)){
-        // Belasse (oder man könnte toggeln; hier: additive)
-      } else {
+      if(!sceneManager.selectedObjects.includes(o)){
         sceneManager.selectedObjects.push(o);
       }
     });
   }
-  sceneManager._updateSelectionVisuals(); // interne Methode aufrufen
+  sceneManager._updateSelectionVisuals();
 }
+
+/* ---------- Context Menu ---------- */
+let contextMenuEl=null;
+function ensureContextMenu(){
+  if(!contextMenuEl){
+    contextMenuEl=document.createElement('div');
+    contextMenuEl.id='viewport-context-menu';
+    contextMenuEl.innerHTML=`
+      <button data-action="duplicate">Duplizieren</button>
+      <button data-action="snap">Snap to Ground</button>
+      <button data-action="delete">Löschen</button>
+      <hr>
+      <button data-action="pivot">${'Pivot Edit'}</button>
+      <button data-action="clear">Auswahl leeren</button>
+    `;
+    document.body.appendChild(contextMenuEl);
+    contextMenuEl.addEventListener('click', e=>{
+      const act=e.target.getAttribute('data-action');
+      if(!act) return;
+      switch(act){
+        case 'duplicate': sceneManager.duplicateSelected(); break;
+        case 'snap': sceneManager.snapToGround(); break;
+        case 'delete': sceneManager.deleteSelected(); break;
+        case 'pivot': console.log('Pivot Edit Mode:', sceneManager.togglePivotEdit()); break;
+        case 'clear': sceneManager.clearSelection(); break;
+      }
+      hideContextMenu();
+    });
+  }
+  return contextMenuEl;
+}
+function showContextMenu(x,y){
+  const el=ensureContextMenu();
+  el.style.display='flex';
+  el.style.left=x+'px';
+  el.style.top=y+'px';
+}
+function hideContextMenu(){
+  if(contextMenuEl) contextMenuEl.style.display='none';
+}
+window.addEventListener('click', e=>{
+  // Outside click closes menu
+  if(contextMenuEl && contextMenuEl.style.display==='flex'){
+    if(!contextMenuEl.contains(e.target)) hideContextMenu();
+  }
+});
 
 /* -------------------- Init -------------------- */
 function init(){
@@ -221,7 +283,7 @@ function init(){
 
   // Shortcuts
   window.addEventListener('keydown', e=>{
-    if (e.target.tagName==='INPUT' || e.target.tagName==='TEXTAREA') return;
+    if(e.target.tagName==='INPUT' || e.target.tagName==='TEXTAREA') return;
     const key=e.key.toLowerCase();
     const isMac=navigator.platform.toLowerCase().includes('mac');
     const ctrl=isMac? e.metaKey : e.ctrlKey;
@@ -234,57 +296,44 @@ function init(){
       case 'f': sceneManager.focusSelected(); break;
       case 'g': sceneManager.snapToGround(); break;
       case 'd': sceneManager.duplicateSelected(); break;
-      case 'r': {
-        const m=sceneManager.cycleGizmoMode();
-        console.log('Gizmo Mode:', m);
-        break;
-      }
-      case 'o': {
-        const enabled=sceneManager.toggleOutline();
-        console.log('Outline:', enabled);
-        break;
-      }
-      case 'p': {
-        const active=sceneManager.togglePivotEdit();
-        console.log('Pivot Edit Mode:', active);
-        break;
-      }
-      case 'escape':
-        // Nur Auswahl löschen wenn kein Marquee aktiv
-        if(!isMarquee) sceneManager.clearSelection();
-        break;
+      case 'r': console.log('Gizmo Mode:', sceneManager.cycleGizmoMode()); break;
+      case 'o': console.log('Outline:', sceneManager.toggleOutline()); break;
+      case 'p': console.log('Pivot Edit Mode:', sceneManager.togglePivotEdit()); break;
+      case 'escape': if(!isMarquee) sceneManager.clearSelection(); break;
       case 'delete':
-      case 'backspace':
-        sceneManager.deleteSelected();
-        break;
+      case 'backspace': sceneManager.deleteSelected(); break;
     }
   });
 
-  // Box-Selection Maus-Events (auf Canvas)
+  // Box-Selection / Canvas interactions
   canvas.addEventListener('mousedown', e=>{
-    // Nur linker Button + nicht auf Transform-Gizmo (heuristik: wenn target === canvas)
+    if(e.button===2) return; // context menu
     if(e.button!==0) return;
-    // Wenn auf UI klickt, abbrechen
-    if(e.target !== canvas) return;
-
-    // Start nur wenn kein Drag von Kamera sofort (lassen OrbitControls arbeiten falls ALT gedrückt)
-    // Hier: Marquee wenn keine ALT-Taste gedrückt & leerer Bereich
-    // (Du kannst Logik anpassen, z.B. nur bei leerer Auswahl)
+    if(e.target!==canvas) return;
     if(!e.altKey){
       beginMarquee(e.clientX, e.clientY);
+      hideContextMenu();
     }
   });
 
   window.addEventListener('mousemove', e=>{
-    if(isMarquee){
-      updateMarquee(e.clientX, e.clientY);
-    }
+    if(isMarquee) updateMarquee(e.clientX, e.clientY);
   });
 
   window.addEventListener('mouseup', e=>{
     if(isMarquee){
-      const append = e.shiftKey || e.ctrlKey || e.metaKey;
+      const append=e.shiftKey||e.ctrlKey||e.metaKey;
       endMarquee(append);
+    }
+  });
+
+  canvas.addEventListener('contextmenu', e=>{
+    e.preventDefault();
+    if(sceneManager.selectedObjects.length>0){
+      showContextMenu(e.clientX, e.clientY);
+    } else {
+      // leeres Kontextmenü nur Clear / SelectAll optional
+      showContextMenu(e.clientX, e.clientY);
     }
   });
 
@@ -308,11 +357,11 @@ function init(){
 
   const audioState={ url:'', loop:false, delaySeconds:0, volume:0.8 };
   function syncAudio(){
-    audioState.url=selAudioFile?.value || '';
+    audioState.url=selAudioFile?.value||'';
     audioState.loop=!!chkAudioLoop?.checked;
     audioState.delaySeconds=parseFloat(inpAudioDelay?.value)||0;
     const v=parseFloat(inpAudioVol?.value);
-    audioState.volume=Number.isFinite(v)? Math.min(1, Math.max(0,v)) : 0.8;
+    audioState.volume=Number.isFinite(v)? Math.min(1, Math.max(0,v)):0.8;
     sceneManager.setAudioConfig(audioState);
   }
   [selAudioFile,chkAudioLoop,inpAudioDelay,inpAudioVol].forEach(el=>el&&el.addEventListener('input',syncAudio));
@@ -327,7 +376,7 @@ function init(){
     }
     sceneManager.editableObjects.forEach(obj=>{
       const li=document.createElement('li');
-      li.textContent=obj.name || 'Unbenanntes Objekt';
+      li.textContent=obj.name||'Unbenanntes Objekt';
       if(sceneManager.selectedObjects.includes(obj)) li.classList.add('selected');
       li.addEventListener('click', e=>{
         sceneManager.selectObject(obj, e.shiftKey || e.ctrlKey || e.metaKey);
@@ -342,7 +391,7 @@ function init(){
 
   const updatePropsUI=()=>{
     const sel=sceneManager.selectedObjects;
-    if(!propContent || !propEmpty) return;
+    if(!propContent||!propEmpty) return;
     if(sel.length===1){
       propContent.classList.remove('hidden');
       propEmpty.classList.add('hidden');
@@ -368,16 +417,8 @@ function init(){
 
   function applyTransform(){
     if(sceneManager.selectedObjects.length!==1) return;
-    const p={
-      x:parseFloat(inpPos.x.value),
-      y:parseFloat(inpPos.y.value),
-      z:parseFloat(inpPos.z.value)
-    };
-    const r={
-      x:parseFloat(inpRot.x.value),
-      y:parseFloat(inpRot.y.value),
-      z:parseFloat(inpRot.z.value)
-    };
+    const p={ x:parseFloat(inpPos.x.value), y:parseFloat(inpPos.y.value), z:parseFloat(inpPos.z.value) };
+    const r={ x:parseFloat(inpRot.x.value), y:parseFloat(inpRot.y.value), z:parseFloat(inpRot.z.value) };
     const s=parseFloat(inpScale.value);
     sceneManager.updateSelectedTransform(p,r,s);
     if(sceneManager.selectedObjects.length===1){
@@ -398,7 +439,7 @@ function init(){
     }
   });
 
-  // Drag & Drop overlay (global)
+  // Drag & Drop global
   const dropOverlay=document.getElementById('drop-overlay');
   document.addEventListener('dragover', e=>{
     e.preventDefault();
@@ -418,12 +459,12 @@ function init(){
     } else { handleFiles(e.dataTransfer.files); }
   });
 
-  // Asset spezifische Dropzone
+  // Asset Dropzone
   const btnAddAssets=document.getElementById('btnAddAssets');
   const assetInput=document.getElementById('asset-upload-input');
   const assetDropzone=document.getElementById('asset-dropzone');
   btnAddAssets?.addEventListener('click',()=>assetInput?.click());
-  assetInput?.addEventListener('change',e=>{
+  assetInput?.addEventListener('change', e=>{
     handleFiles(e.target.files); e.target.value='';
   });
   assetDropzone?.addEventListener('dragover', e=>{
