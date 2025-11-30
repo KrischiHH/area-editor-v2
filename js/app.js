@@ -8,16 +8,12 @@ const CONFIG = {
   PUBLISH_ENDPOINT: '/publish'
 };
 
-// State
 let sceneManager;
-const assetFiles = new Map();      // filename -> File
-const assetBlobUrls = new Map();   // filename -> objectURL (nur Modelle / GLTF)
+const assetFiles = new Map();
+const assetBlobUrls = new Map();
 const AUDIO_EXT = ['mp3','ogg','m4a'];
 const VIDEO_EXT = ['mp4','webm'];
 
-// ---------------------------------------------------
-// Utility
-// ---------------------------------------------------
 function getFileExtension(filename){ return filename.split('.').pop().toLowerCase(); }
 
 function classifyAsset(file) {
@@ -78,21 +74,19 @@ function rebuildAssetList() {
     const btnRemove = document.createElement('button');
     btnRemove.textContent='✕'; btnRemove.title='Asset entfernen';
     btnRemove.onclick = () => {
-      // Revoke Blob URL falls Modell
       if (assetBlobUrls.has(name)) {
         URL.revokeObjectURL(assetBlobUrls.get(name));
         assetBlobUrls.delete(name);
       }
       assetFiles.delete(name);
       rebuildAssetList();
-      // Audio-Dropdown Option entfernen + Audio-State synchronisieren
       if (AUDIO_EXT.includes(getFileExtension(name))) {
         const sel = document.getElementById('sel-audio-file');
         if (sel) {
           [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
           if (sel.value === name) { sel.value=''; sel.dispatchEvent(new Event('input')); }
         }
-        syncAudio(); // Wichtig: Audio-Konfiguration neu anwenden
+        syncAudio();
       }
     };
     actions.appendChild(btnRemove);
@@ -110,13 +104,9 @@ function sanitizeUrl(raw) {
   if (!trimmed) return '';
   try {
     const u = new URL(trimmed, window.location.origin);
-    if (u.protocol === 'http:' || u.protocol === 'https:') {
-      return u.href;
-    }
-  } catch(_) {
-    // ungültig
-  }
-  return ''; // verwerfen, wenn nicht http/https
+    if (u.protocol === 'http:' || u.protocol === 'https:') return u.href;
+  } catch(_) {}
+  return '';
 }
 
 function handleFiles(files){
@@ -127,14 +117,12 @@ function handleFiles(files){
       if (assetFiles.has(assetName)) {
         const overwrite = confirm(`Datei "${assetName}" existiert schon. Überschreiben?`);
         if (!overwrite) continue;
-        // Alte Blob URL bei Modell entfernen
         if (assetBlobUrls.has(assetName)) {
           URL.revokeObjectURL(assetBlobUrls.get(assetName));
           assetBlobUrls.delete(assetName);
         }
       }
       assetFiles.set(assetName, file);
-
       if (ext === 'glb' || ext === 'gltf'){
         const blobUrl = URL.createObjectURL(file);
         assetBlobUrls.set(assetName, blobUrl);
@@ -142,12 +130,10 @@ function handleFiles(files){
       }
       if (AUDIO_EXT.includes(ext)){
         const sel = document.getElementById('sel-audio-file');
-        if (sel){
-          if (![...sel.options].some(o => o.value === assetName)) {
-            const opt = document.createElement('option');
-            opt.value = assetName; opt.textContent = assetName;
-            sel.appendChild(opt);
-          }
+        if (sel && ![...sel.options].some(o => o.value === assetName)) {
+          const opt = document.createElement('option');
+          opt.value = assetName; opt.textContent = assetName;
+          sel.appendChild(opt);
         }
       }
     }
@@ -155,9 +141,6 @@ function handleFiles(files){
   rebuildAssetList();
 }
 
-// ---------------------------------------------------
-// Initialisierung
-// ---------------------------------------------------
 function init(){
   const canvas = document.getElementById('main-canvas');
   if (!canvas) {
@@ -166,10 +149,37 @@ function init(){
   }
   sceneManager = new SceneManager(canvas);
 
-  // Hotkey Fokus (F)
+  // Shortcuts
   window.addEventListener('keydown', e => {
-    if (e.key.toLowerCase() === 'f') {
-      sceneManager.focusSelected();
+    if (e.target.tagName === 'INPUT') return; // Keine Konflikte beim Tippen
+    const key = e.key.toLowerCase();
+    switch(key) {
+      case 'f': // Fokus
+        sceneManager.focusSelected();
+        break;
+      case 'g': // Snap to ground
+        sceneManager.snapToGround();
+        break;
+      case 'd': // Duplizieren
+        sceneManager.duplicateSelected();
+        break;
+      case 'r': { // Gizmo Mode wechseln
+        const m = sceneManager.cycleGizmoMode();
+        console.log('Gizmo Mode:', m);
+        break;
+      }
+      case 'o': { // Outline toggle
+        const enabled = sceneManager.toggleOutline();
+        console.log('Outline:', enabled);
+        break;
+      }
+      case 'escape': // Auswahl zurücksetzen
+        sceneManager.selectObject(null);
+        break;
+      case 'delete':
+      case 'backspace':
+        sceneManager.deleteSelected();
+        break;
     }
   });
 
@@ -279,7 +289,7 @@ function init(){
     }
   });
 
-  // Drag/drop overlay
+  // Drag & Drop Overlay
   const dropOverlay = document.getElementById('drop-overlay');
   document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay?.classList.add('drag-active'); });
   document.addEventListener('dragleave', e => {
@@ -295,7 +305,7 @@ function init(){
     } else { handleFiles(e.dataTransfer.files); }
   });
 
-  // Assets dropzone
+  // Asset spezifisches Drop
   const btnAddAssets = document.getElementById('btnAddAssets');
   const assetInput = document.getElementById('asset-upload-input');
   const assetDropzone = document.getElementById('asset-dropzone');
@@ -350,11 +360,9 @@ function init(){
       }
 
       const uploadAssets = [];
-      // Merged GLB
       const mergedFile = new File([mergedBlob], 'scene.glb', { type: 'application/octet-stream' });
       uploadAssets.push(mergedFile);
 
-      // Audio-Datei falls vorhanden
       if (audioState.url && assetFiles.has(audioState.url)) {
         uploadAssets.push(assetFiles.get(audioState.url));
       }
