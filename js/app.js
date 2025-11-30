@@ -132,8 +132,8 @@ function handleFiles(files){
         const sel = document.getElementById('sel-audio-file');
         if (sel && ![...sel.options].some(o => o.value === assetName)) {
           const opt = document.createElement('option');
-          opt.value = assetName; opt.textContent = assetName;
-          sel.appendChild(opt);
+            opt.value = assetName; opt.textContent = assetName;
+            sel.appendChild(opt);
         }
       }
     }
@@ -141,6 +141,7 @@ function handleFiles(files){
   rebuildAssetList();
 }
 
+/* -------------------- Init -------------------- */
 function init(){
   const canvas = document.getElementById('main-canvas');
   if (!canvas) {
@@ -149,31 +150,45 @@ function init(){
   }
   sceneManager = new SceneManager(canvas);
 
-  // Shortcuts
+  // Shortcuts (Undo/Redo + vorhandene)
   window.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT') return; // Keine Konflikte beim Tippen
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     const key = e.key.toLowerCase();
+    const isMac = navigator.platform.toLowerCase().includes('mac');
+    const ctrl = isMac ? e.metaKey : e.ctrlKey;
+
+    if (ctrl && key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      sceneManager.undo();
+      return;
+    }
+    if ((ctrl && key === 'y') || (ctrl && key === 'z' && e.shiftKey)) {
+      e.preventDefault();
+      sceneManager.redo();
+      return;
+    }
+
     switch(key) {
-      case 'f': // Fokus
+      case 'f':
         sceneManager.focusSelected();
         break;
-      case 'g': // Snap to ground
+      case 'g':
         sceneManager.snapToGround();
         break;
-      case 'd': // Duplizieren
+      case 'd':
         sceneManager.duplicateSelected();
         break;
-      case 'r': { // Gizmo Mode wechseln
+      case 'r': {
         const m = sceneManager.cycleGizmoMode();
         console.log('Gizmo Mode:', m);
         break;
       }
-      case 'o': { // Outline toggle
+      case 'o': {
         const enabled = sceneManager.toggleOutline();
         console.log('Outline:', enabled);
         break;
       }
-      case 'escape': // Auswahl zurücksetzen
+      case 'escape':
         sceneManager.selectObject(null);
         break;
       case 'delete':
@@ -259,6 +274,7 @@ function init(){
   sceneManager.onTransformChange = updatePropsUI;
 
   function applyTransform(){
+    if (!sceneManager.selectedObject) return;
     const p = {
       x: parseFloat(inpPos.x.value),
       y: parseFloat(inpPos.y.value),
