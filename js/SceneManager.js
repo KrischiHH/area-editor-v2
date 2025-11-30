@@ -32,9 +32,9 @@ export class SceneManager {
     this.animate();
   }
 
-  setAudioConfig(cfg){ 
+  setAudioConfig(cfg){ 
     // NEU: Nur speichern, wenn die URL gesetzt ist, sonst null setzen.
-    this.audioConfig = (cfg && cfg.url) ? { ...cfg } : null; 
+    this.audioConfig = (cfg && cfg.url) ? { ...cfg } : null; 
   }
 
   init(){
@@ -47,7 +47,7 @@ export class SceneManager {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x161b23);
-    
+    
     this.ambient = new THREE.AmbientLight(0xffffff, 0.5);
     this.scene.add(this.ambient);
 
@@ -114,14 +114,14 @@ export class SceneManager {
       const box = new THREE.Box3().setFromObject(model);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
-      
+      
       const yOffsetCorrection = center.y - (size.y / 2);
-      
+      
       // Korrektur in THREE.js anwenden
-      model.position.y -= yOffsetCorrection; 
-      
+      model.position.y -= yOffsetCorrection; 
+      
       // Den Korrekturwert speichern (der Wert, der den Editor korrigiert hat)
-      model.userData.yOffsetCorrection = yOffsetCorrection; 
+      model.userData.yOffsetCorrection = yOffsetCorrection; 
 
       if (gltf.animations && gltf.animations.length){
         const clonedClips = gltf.animations.map(c => c.clone());
@@ -192,7 +192,7 @@ export class SceneManager {
 
   getSceneConfig(){
     const rotationToArray = (rot) => [rot.x, rot.y, rot.z];
-    
+    
     // Filtert alle Modelle heraus, die exportiert werden sollen.
     const assets = this.editableObjects
       .filter(o => o.userData.isEditable && o.userData.assetUrl)
@@ -210,27 +210,27 @@ export class SceneManager {
     let modelEntry = undefined;
     if (main) {
       modelEntry = { url: 'scene.glb' };
-      
+      
       // NEU: Y-Offset für Viewer exportieren
       const mainObject = this.editableObjects.find(o => o.uuid === main.uuid);
       if (mainObject && mainObject.userData.yOffsetCorrection) {
         // Der Wert, der im Viewer-CSS verwendet werden kann.
         // Muss hier als float exportiert werden, damit er im Viewer verarbeitet werden kann.
-        modelEntry.yOffset = +mainObject.userData.yOffsetCorrection.toFixed(4); 
+        modelEntry.yOffset = +mainObject.userData.yOffsetCorrection.toFixed(4); 
       }
     }
 
     const clickableNodes = this.editableObjects
       .filter(o => o.userData.linkUrl && o.userData.linkUrl.trim())
       .map(o => ({
-        // ACHTUNG: Hier müssten wir den Node-Namen statt der Position übergeben, 
+        // ACHTUNG: Hier müssten wir den Node-Namen statt der Position übergeben, 
         // wenn wir das Modell verschieben. Fürs Erste nehmen wir den Hauptnamen.
         url: o.userData.linkUrl.trim(),
         // Da wir Submeshes einführen wollen, ändern wir das Label in den Namen des Objekts
-        label: o.name || o.uuid 
+        label: o.name || o.uuid 
       }));
 
-    // KORRIGIERT: Audio-Block wird nur erstellt, wenn this.audioConfig existiert (was es tut, 
+    // KORRIGIERT: Audio-Block wird nur erstellt, wenn this.audioConfig existiert (was es tut, 
     // wenn im Dropdown etwas ausgewählt wurde).
     const audio = this.audioConfig ? {
         url: this.audioConfig.url,
@@ -249,7 +249,7 @@ export class SceneManager {
     };
   }
 
-exportMergedGlbBlob(){
+  exportMergedGlbBlob(){
     return new Promise(async (resolve, reject) => {
       try {
         // Nur Assets exportieren, die in der Szene sind
@@ -301,7 +301,6 @@ exportMergedGlbBlob(){
     if (allClips.length === 0) return [];
     
     // Zusammenführen aller Clips in einen einzigen "merged" Clip
-    // Dies ist notwendig für den GLTFExporter, wenn er mehrere Animationen hat.
     const mergedClip = THREE.AnimationUtils.createClip(
       'merged_animation',
       -1, // Dauer wird automatisch berechnet
@@ -311,4 +310,4 @@ exportMergedGlbBlob(){
     return [mergedClip];
   }
 
-} // <-- Schließt die Klasse SceneManager
+} // <-- Schließt die Klasse SceneManager korrekt.
