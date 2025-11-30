@@ -8,12 +8,16 @@ const CONFIG = {
   PUBLISH_ENDPOINT: '/publish'
 };
 
+// State
 let sceneManager;
-const assetFiles = new Map();           // filename -> File
-const assetBlobUrls = new Map();        // filename -> objectURL (nur für Modelle)
+const assetFiles = new Map();      // filename -> File
+const assetBlobUrls = new Map();   // filename -> objectURL (nur Modelle / GLTF)
 const AUDIO_EXT = ['mp3','ogg','m4a'];
 const VIDEO_EXT = ['mp4','webm'];
 
+// ---------------------------------------------------
+// Utility
+// ---------------------------------------------------
 function getFileExtension(filename){ return filename.split('.').pop().toLowerCase(); }
 
 function classifyAsset(file) {
@@ -35,6 +39,7 @@ function formatBytes(bytes) {
 
 function rebuildAssetList() {
   const ul = document.getElementById('asset-list');
+  if (!ul) return;
   ul.innerHTML = '';
   if (assetFiles.size === 0) {
     ul.innerHTML = '<li class="empty">Noch keine Assets</li>';
@@ -45,7 +50,10 @@ function rebuildAssetList() {
     const type = classifyAsset(file);
     const title = document.createElement('div'); title.textContent = name;
     const badge = document.createElement('span'); badge.className = 'asset-type'; badge.textContent = type;
-    const sizeEl = document.createElement('span'); sizeEl.style.fontSize='10px'; sizeEl.style.color='var(--text-muted)'; sizeEl.textContent = formatBytes(file.size);
+    const sizeEl = document.createElement('span');
+    sizeEl.style.fontSize='10px';
+    sizeEl.style.color='var(--text-muted)';
+    sizeEl.textContent = formatBytes(file.size);
     const actions = document.createElement('div'); actions.className = 'asset-actions';
 
     if (type === 'audio') {
@@ -75,21 +83,25 @@ function rebuildAssetList() {
         URL.revokeObjectURL(assetBlobUrls.get(name));
         assetBlobUrls.delete(name);
       }
-
       assetFiles.delete(name);
       rebuildAssetList();
-
       // Audio-Dropdown Option entfernen + Audio-State synchronisieren
       if (AUDIO_EXT.includes(getFileExtension(name))) {
         const sel = document.getElementById('sel-audio-file');
-        [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
-        if (sel.value === name) { sel.value=''; sel.dispatchEvent(new Event('input')); }
-        syncAudio(); // WICHTIG: Audio-Konfiguration neu anwenden
+        if (sel) {
+          [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
+          if (sel.value === name) { sel.value=''; sel.dispatchEvent(new Event('input')); }
+        }
+        syncAudio(); // Wichtig: Audio-Konfiguration neu anwenden
       }
     };
     actions.appendChild(btnRemove);
 
-    li.appendChild(title); li.appendChild(badge); li.appendChild(sizeEl); li.appendChild(actions); ul.appendChild(li);
+    li.appendChild(title);
+    li.appendChild(badge);
+    li.appendChild(sizeEl);
+    li.appendChild(actions);
+    ul.appendChild(li);
   }
 }
 
@@ -115,7 +127,6 @@ function handleFiles(files){
       if (assetFiles.has(assetName)) {
         const overwrite = confirm(`Datei "${assetName}" existiert schon. Überschreiben?`);
         if (!overwrite) continue;
-
         // Alte Blob URL bei Modell entfernen
         if (assetBlobUrls.has(assetName)) {
           URL.revokeObjectURL(assetBlobUrls.get(assetName));
@@ -132,12 +143,11 @@ function handleFiles(files){
       if (AUDIO_EXT.includes(ext)){
         const sel = document.getElementById('sel-audio-file');
         if (sel){
-          // Option nur hinzufügen wenn nicht bereits vorhanden
-            if (![...sel.options].some(o => o.value === assetName)) {
-              const opt = document.createElement('option');
-              opt.value = assetName; opt.textContent = assetName;
-              sel.appendChild(opt);
-            }
+          if (![...sel.options].some(o => o.value === assetName)) {
+            const opt = document.createElement('option');
+            opt.value = assetName; opt.textContent = assetName;
+            sel.appendChild(opt);
+          }
         }
       }
     }
@@ -145,9 +155,23 @@ function handleFiles(files){
   rebuildAssetList();
 }
 
+// ---------------------------------------------------
+// Initialisierung
+// ---------------------------------------------------
 function init(){
   const canvas = document.getElementById('main-canvas');
+  if (!canvas) {
+    console.error('Canvas #main-canvas nicht gefunden');
+    return;
+  }
   sceneManager = new SceneManager(canvas);
+
+  // Hotkey Fokus (F)
+  window.addEventListener('keydown', e => {
+    if (e.key.toLowerCase() === 'f') {
+      sceneManager.focusSelected();
+    }
+  });
 
   const objectList = document.getElementById('object-list');
   const propContent = document.getElementById('prop-content');
@@ -169,18 +193,18 @@ function init(){
 
   const audioState = { url:'', loop:false, delaySeconds:0, volume:0.8 };
   function syncAudio(){
-    audioState.url = selAudioFile.value || '';
-    audioState.loop = !!chkAudioLoop.checked;
-    audioState.delaySeconds = parseFloat(inpAudioDelay.value) || 0;
-    const v = parseFloat(inpAudioVol.value);
+    audioState.url = selAudioFile?.value || '';
+    audioState.loop = !!chkAudioLoop?.checked;
+    audioState.delaySeconds = parseFloat(inpAudioDelay?.value) || 0;
+    const v = parseFloat(inpAudioVol?.value);
     audioState.volume = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.8;
     sceneManager.setAudioConfig(audioState);
   }
   [selAudioFile, chkAudioLoop, inpAudioDelay, inpAudioVol].forEach(el => el && el.addEventListener('input', syncAudio));
   syncAudio();
 
-  // Objektliste separat aktualisieren (kein doppeltes Aufrufen in updatePropsUI)
   function refreshObjectList(){
+    if (!objectList) return;
     objectList.innerHTML = '';
     if (sceneManager.editableObjects.length === 0){
       objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
@@ -201,10 +225,11 @@ function init(){
 
   const updatePropsUI = () => {
     const obj = sceneManager.selectedObject;
+    if (!propContent || !propEmpty) return;
     if (obj){
       propContent.classList.remove('hidden');
       propEmpty.classList.add('hidden');
-      inpName.value = obj.name;
+      inpName.value = obj.name || '';
       inpPos.x.value = obj.position.x.toFixed(2);
       inpPos.y.value = obj.position.y.toFixed(2);
       inpPos.z.value = obj.position.z.toFixed(2);
@@ -224,22 +249,31 @@ function init(){
   sceneManager.onTransformChange = updatePropsUI;
 
   function applyTransform(){
-    const p = { x: parseFloat(inpPos.x.value), y: parseFloat(inpPos.y.value), z: parseFloat(inpPos.z.value) };
-    const r = { x: parseFloat(inpRot.x.value), y: parseFloat(inpRot.y.value), z: parseFloat(inpRot.z.value) };
+    const p = {
+      x: parseFloat(inpPos.x.value),
+      y: parseFloat(inpPos.y.value),
+      z: parseFloat(inpPos.z.value)
+    };
+    const r = {
+      x: parseFloat(inpRot.x.value),
+      y: parseFloat(inpRot.y.value),
+      z: parseFloat(inpRot.z.value)
+    };
     const s = parseFloat(inpScale.value);
     sceneManager.updateSelectedTransform(p,r,s);
-    if (sceneManager.selectedObject) sceneManager.selectedObject.name = inpName.value;
-    // Nur Objektliste auffrischen (Properties bleiben aktuell)
+    if (sceneManager.selectedObject) {
+      sceneManager.selectedObject.name = inpName.value;
+    }
     refreshObjectList();
   }
-  [inpName, inpScale, ...Object.values(inpPos), ...Object.values(inpRot)].forEach(el => el.addEventListener('input', applyTransform));
+  [inpName, inpScale, ...Object.values(inpPos), ...Object.values(inpRot)]
+    .forEach(el => el && el.addEventListener('input', applyTransform));
 
   inpLinkUrl.addEventListener('input', () => {
     if (sceneManager.selectedObject){
       const sanitized = sanitizeUrl(inpLinkUrl.value);
       sceneManager.selectedObject.userData.linkUrl = sanitized;
       if (sanitized !== inpLinkUrl.value) {
-        // Falls Nutzer etwas Unsicheres eingibt → UI korrigieren
         inpLinkUrl.value = sanitized;
       }
     }
@@ -247,13 +281,13 @@ function init(){
 
   // Drag/drop overlay
   const dropOverlay = document.getElementById('drop-overlay');
-  document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay.classList.add('drag-active'); });
+  document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay?.classList.add('drag-active'); });
   document.addEventListener('dragleave', e => {
     if (e.clientX === 0 || e.clientY === 0 || e.clientX === window.innerWidth || e.clientY === window.innerHeight){
-      dropOverlay.classList.remove('drag-active');
+      dropOverlay?.classList.remove('drag-active');
     }
   });
-  dropOverlay.addEventListener('drop', e => {
+  dropOverlay?.addEventListener('drop', e => {
     e.preventDefault(); dropOverlay.classList.remove('drag-active');
     if (e.dataTransfer.items){
       const fs=[]; for (const item of e.dataTransfer.items){ if (item.kind==='file') fs.push(item.getAsFile()); }
@@ -265,13 +299,13 @@ function init(){
   const btnAddAssets = document.getElementById('btnAddAssets');
   const assetInput = document.getElementById('asset-upload-input');
   const assetDropzone = document.getElementById('asset-dropzone');
-  btnAddAssets.addEventListener('click', () => assetInput.click());
-  assetInput.addEventListener('change', e => {
+  btnAddAssets?.addEventListener('click', () => assetInput?.click());
+  assetInput?.addEventListener('change', e => {
     handleFiles(e.target.files); e.target.value = '';
   });
-  assetDropzone.addEventListener('dragover', e => { e.preventDefault(); assetDropzone.classList.add('drag-active'); });
-  assetDropzone.addEventListener('dragleave', e => { if (e.relatedTarget === null) assetDropzone.classList.remove('drag-active'); });
-  assetDropzone.addEventListener('drop', e => {
+  assetDropzone?.addEventListener('dragover', e => { e.preventDefault(); assetDropzone.classList.add('drag-active'); });
+  assetDropzone?.addEventListener('dragleave', e => { if (e.relatedTarget === null) assetDropzone.classList.remove('drag-active'); });
+  assetDropzone?.addEventListener('drop', e => {
     e.preventDefault(); assetDropzone.classList.remove('drag-active');
     if (e.dataTransfer.items){
       const fs=[]; for (const item of e.dataTransfer.items){ if (item.kind === 'file') fs.push(item.getAsFile()); }
@@ -281,8 +315,8 @@ function init(){
 
   rebuildAssetList();
 
-  // Publish (Merge)
-  btnPublish.addEventListener('click', async () => {
+  // Publish
+  btnPublish?.addEventListener('click', async () => {
     if (assetFiles.size === 0){
       publishStatus.textContent = 'Fehler: Szene leer.';
       return;
@@ -316,11 +350,11 @@ function init(){
       }
 
       const uploadAssets = [];
-      // GLB Datei
+      // Merged GLB
       const mergedFile = new File([mergedBlob], 'scene.glb', { type: 'application/octet-stream' });
       uploadAssets.push(mergedFile);
 
-      // Audio-Datei hinzufügen falls konfiguriert
+      // Audio-Datei falls vorhanden
       if (audioState.url && assetFiles.has(audioState.url)) {
         uploadAssets.push(assetFiles.get(audioState.url));
       }
