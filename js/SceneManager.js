@@ -620,3 +620,4 @@ export class SceneManager {
     return [merged];
   }
 }
+export default SceneManager;
