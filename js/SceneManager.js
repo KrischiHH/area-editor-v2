@@ -14,7 +14,7 @@ export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
 
-    // Hintergrund bewusst etwas heller als True-Black
+    // Hintergrund etwas heller als schwarz
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0d1117);
 
@@ -25,19 +25,28 @@ export class SceneManager {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-    // Modernes Farbmanagement (Three r160+)
+    // Farbmanagement (aktuelle Three-Versionen)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.35; // etwas heller als Standard
+    this.renderer.toneMappingExposure = 1.45; // bewusst etwas heller
 
     this.renderer.shadowMap.enabled = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Orbit Controls
+    // Orbit Controls – klassisches Verhalten
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
-    this.controls.screenSpacePanning = true;
+    this.controls.dampingFactor = 0.1;
+    this.controls.screenSpacePanning = false; // klassisches Panning
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.PAN
+    };
+    this.controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN
+    };
     this.controls.minDistance = 0.4;
     this.controls.maxDistance = 150;
     this.controls.maxPolarAngle = Math.PI * 0.49;
@@ -48,6 +57,7 @@ export class SceneManager {
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.transformControls.setSize(1.0);
     this.transformControls.addEventListener('dragging-changed', e => {
+      // Während Gizmo-Drag OrbitControls deaktivieren
       this.controls.enabled = !e.value;
       if (e.value) {
         if (this.pivotEditMode) {
@@ -98,19 +108,19 @@ export class SceneManager {
     });
     this.scene.add(this.transformControls);
 
-    // Licht (Standard “Studio” – heller)
+    // Licht – helles Studio-Setup
     this.currentLightProfile = 'studio';
     this._lights = [];
     this._applyLightingProfile(this.currentLightProfile);
 
     // Helleres Grid
-    const grid = new THREE.GridHelper(50, 50, 0x6b7785, 0x343b43);
-    grid.material.opacity = 0.7;
+    const grid = new THREE.GridHelper(50, 50, 0x7c8896, 0x3c434b);
+    grid.material.opacity = 0.75;
     grid.material.transparent = true;
     this.scene.add(grid);
 
     // Achsen-Helfer
-    this.axesHelper = new THREE.AxesHelper(1.2);
+    this.axesHelper = new THREE.AxesHelper(1.3);
     this.axesHelper.visible = false;
     this.scene.add(this.axesHelper);
 
@@ -143,7 +153,7 @@ export class SceneManager {
     this.loader.setDRACOLoader(dracoLoader);
     this.exporter = new GLTFExporter();
 
-    // Environment (RoomEnvironment → neutral und ausreichend hell)
+    // Environment (neutral, hell), keine sigma-Warnungen
     this._setupRoomEnvironment();
 
     // Postprocessing Outline
@@ -192,35 +202,33 @@ export class SceneManager {
 
     if (profile === 'studio') {
       // Helles, weiches Studio-Setup
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.0);
-      const key = new THREE.DirectionalLight(0xffffff, 1.45);
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05);
+      const key = new THREE.DirectionalLight(0xffffff, 1.55);
       key.position.set(5, 7, 4);
-      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.75);
+      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85);
       fill.position.set(-6, 4, -3);
-      const rim = new THREE.DirectionalLight(0xbcd4ff, 0.8);
-      rim.position.set(-3, 6, 6);
-      const ambient = new THREE.AmbientLight(0xffffff, 0.35);
-      [hemi, key, fill, rim, ambient].forEach(l => {
+      const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+      [hemi, key, fill, ambient].forEach(l => {
         l.castShadow = false;
         this.scene.add(l);
         this._lights.push(l);
       });
-      this.renderer.toneMappingExposure = 1.35;
+      this.renderer.toneMappingExposure = 1.45;
     } else if (profile === 'neutral') {
-      const ambient = new THREE.AmbientLight(0xffffff, 0.8);
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.8);
+      const ambient = new THREE.AmbientLight(0xffffff, 0.85);
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.85);
       this.scene.add(ambient, hemi);
       this._lights.push(ambient, hemi);
-      this.renderer.toneMappingExposure = 1.2;
+      this.renderer.toneMappingExposure = 1.3;
     } else if (profile === 'bright') {
-      const hemi = new THREE.HemisphereLight(0xffffff, 0xbdd2ff, 1.2);
-      const key = new THREE.DirectionalLight(0xffffff, 1.8);
+      const hemi = new THREE.HemisphereLight(0xffffff, 0xbdd2ff, 1.3);
+      const key = new THREE.DirectionalLight(0xffffff, 1.9);
       key.position.set(6, 9, 4);
-      const fill = new THREE.DirectionalLight(0xeaf1ff, 0.9);
+      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.0);
       fill.position.set(-6, 5, -4);
       [hemi, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(hemi, key, fill);
-      this.renderer.toneMappingExposure = 1.5;
+      this.renderer.toneMappingExposure = 1.6;
     }
 
     this.currentLightProfile = profile;
@@ -233,12 +241,11 @@ export class SceneManager {
     return next;
   }
 
-  /* ---------- RoomEnvironment (keine sigma-Warnungen) ---------- */
+  /* ---------- RoomEnvironment ---------- */
   _setupRoomEnvironment() {
     const pmrem = new PMREMGenerator(this.renderer);
-    const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.03); // kleine blur
-    this.scene.environment = env.texture;
-    // Kein fromScene eigener Dummy mehr → keine sigma-Warnungen
+    const envRT = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02); // leichtes Blur
+    this.scene.environment = envRT.texture;
   }
 
   /* ---------- Utility ---------- */
