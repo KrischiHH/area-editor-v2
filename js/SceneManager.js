@@ -1,379 +1,382 @@
+import { SceneManager } from './SceneManager.js';
+import { PublishClient } from './PublishClient.js';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 
-export class SceneManager {
-  constructor(canvas) {
-    this.canvas = canvas;
+const CONFIG = {
+  WORKER_ORIGIN: 'https://area-publish-proxy.area-webar.workers.dev',
+  VIEWER_BASE: 'https://krischihh.github.io/area-viewer-v2/viewer.html',
+  PUBLISH_ENDPOINT: '/publish'
+};
 
-    // Grundelemente
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x000000);
+let sceneManager;
+const assetFiles = new Map();
+const assetBlobUrls = new Map();
+const AUDIO_EXT = ['mp3','ogg','m4a'];
+const VIDEO_EXT = ['mp4','webm'];
 
-    this.camera = new THREE.PerspectiveCamera(
-      60,
-      canvas.clientWidth / canvas.clientHeight,
-      0.1,
-      500
-    );
-    this.camera.position.set(0, 1.6, 4);
+function getFileExtension(filename){ return filename.split('.').pop().toLowerCase(); }
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+function classifyAsset(file) {
+  const ext = getFileExtension(file.name);
+  if (['glb','gltf','usdz'].includes(ext)) return 'model';
+  if (['jpg','jpeg','png','webp'].includes(ext)) return 'image';
+  if (AUDIO_EXT.includes(ext)) return 'audio';
+  if (VIDEO_EXT.includes(ext)) return 'video';
+  return 'other';
+}
 
-    // OrbitControls
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
-    this.controls.screenSpacePanning = true;
-    this.controls.minDistance = 0.4;
-    this.controls.maxDistance = 150;
-    this.controls.maxPolarAngle = Math.PI * 0.49;
-    this.controls.target.set(0, 1.0, 0);
-    this.controls.update();
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  const units = ['B','KB','MB','GB'];
+  let i = 0; let v = bytes;
+  while (v >= 1024 && i < units.length-1) { v /= 1024; i++; }
+  return v.toFixed(v < 10 ? 2 : 1) + ' ' + units[i];
+}
 
-    // TransformControls
-    this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
-    this.transformControls.setSize(1.0);
-    this.transformControls.addEventListener('dragging-changed', e => {
-      this.controls.enabled = !e.value;
-    });
-    this.transformControls.addEventListener('change', () => {
-      // Trigger transform callback bei echter Änderung (Drag Ende)
-      if (!this.transformControls.dragging && this.selectedObject) {
-        this.onTransformChange?.();
+function rebuildAssetList() {
+  const ul = document.getElementById('asset-list');
+  if (!ul) return;
+  ul.innerHTML = '';
+  if (assetFiles.size === 0) {
+    ul.innerHTML = '<li class="empty">Noch keine Assets</li>';
+    return;
+  }
+  for (const [name, file] of assetFiles.entries()) {
+    const li = document.createElement('li');
+    const type = classifyAsset(file);
+    const title = document.createElement('div'); title.textContent = name;
+    const badge = document.createElement('span'); badge.className = 'asset-type'; badge.textContent = type;
+    const sizeEl = document.createElement('span');
+    sizeEl.style.fontSize='10px';
+    sizeEl.style.color='var(--text-muted)';
+    sizeEl.textContent = formatBytes(file.size);
+    const actions = document.createElement('div'); actions.className = 'asset-actions';
+
+    if (type === 'audio') {
+      const btnAudio = document.createElement('button');
+      btnAudio.textContent = '▶'; btnAudio.title='Audio-Vorschau'; btnAudio.className='audio-preview-btn';
+      let audioObj = null;
+      btnAudio.onclick = () => {
+        if (!audioObj) {
+          audioObj = new Audio(URL.createObjectURL(file));
+          audioObj.onended = () => { btnAudio.textContent='▶'; btnAudio.classList.remove('playing'); };
+        }
+        if (audioObj.paused) {
+          audioObj.play().catch(e=>console.warn('Audio preview failed',e));
+          btnAudio.textContent='⏸'; btnAudio.classList.add('playing');
+        } else {
+          audioObj.pause(); btnAudio.textContent='▶'; btnAudio.classList.remove('playing');
+        }
+      };
+      actions.appendChild(btnAudio);
+    }
+
+    const btnRemove = document.createElement('button');
+    btnRemove.textContent='✕'; btnRemove.title='Asset entfernen';
+    btnRemove.onclick = () => {
+      if (assetBlobUrls.has(name)) {
+        URL.revokeObjectURL(assetBlobUrls.get(name));
+        assetBlobUrls.delete(name);
       }
-    });
-    this.scene.add(this.transformControls);
-
-    // Licht
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x394053, 0.9);
-    this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(6, 12, 8);
-    dir.castShadow = false;
-    this.scene.add(dir);
-
-    // Boden / Hilfen
-    const grid = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
-    grid.position.y = 0;
-    this.scene.add(grid);
-
-    // Achsenhelper optional:
-    this.axesHelper = new THREE.AxesHelper(1.5);
-    this.axesHelper.visible = false; // auf Wunsch aktivierbar
-    this.scene.add(this.axesHelper);
-
-    // State
-    this.editableObjects = [];
-    this.selectedObject = null;
-    this.audioConfig = null;
-    this.modelAnimationMap = new Map();
-    this._mixers = [];
-    this._clock = new THREE.Clock();
-    this._outlineEnabled = true;
-
-    // Loader / Exporter
-    this.loader = new GLTFLoader();
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
-    this.loader.setDRACOLoader(dracoLoader);
-    this.exporter = new GLTFExporter();
-
-    // Postprocessing Composer + OutlinePass
-    this.composer = new EffectComposer(this.renderer);
-    this.renderPass = new RenderPass(this.scene, this.camera);
-    this.outlinePass = new OutlinePass(
-      new THREE.Vector2(canvas.clientWidth, canvas.clientHeight),
-      this.scene,
-      this.camera
-    );
-    this.outlinePass.edgeStrength = 5.0;
-    this.outlinePass.edgeGlow = 0.3;
-    this.outlinePass.edgeThickness = 1.0;
-    this.outlinePass.pulsePeriod = 0;
-    this.outlinePass.visibleEdgeColor.set('#4da6ff');
-    this.outlinePass.hiddenEdgeColor.set('#1a3d66');
-
-    this.composer.addPass(this.renderPass);
-    this.composer.addPass(this.outlinePass);
-
-    // Callbacks (werden von app.js gesetzt)
-    this.onSceneUpdate = () => {};
-    this.onSelectionChange = () => {};
-    this.onTransformChange = () => {};
-
-    // Render Loop
-    const animate = () => {
-      requestAnimationFrame(animate);
-      const delta = this._clock.getDelta();
-      this._mixers.forEach(m => m.update(delta));
-      this.controls.update();
-
-      if (this._outlineEnabled) {
-        this.composer.render();
-      } else {
-        this.renderer.render(this.scene, this.camera);
+      assetFiles.delete(name);
+      rebuildAssetList();
+      if (AUDIO_EXT.includes(getFileExtension(name))) {
+        const sel = document.getElementById('sel-audio-file');
+        if (sel) {
+          [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
+          if (sel.value === name) { sel.value=''; sel.dispatchEvent(new Event('input')); }
+        }
+        syncAudio();
       }
     };
-    animate();
+    actions.appendChild(btnRemove);
 
-    // Resize Handling
-    window.addEventListener('resize', () => this._handleResize());
-  }
-
-  _handleResize() {
-    const w = this.canvas.clientWidth;
-    const h = this.canvas.clientHeight;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
-    this.composer.setSize(w, h);
-  }
-
-  setAudioConfig(cfg) {
-    this.audioConfig = cfg;
-  }
-
-  loadModel(url, nameHint) {
-    this.loader.load(
-      url,
-      gltf => {
-        const root = gltf.scene;
-        root.traverse(o => {
-          o.userData.isEditable = true;
-          o.castShadow = false;
-          o.receiveShadow = false;
-        });
-
-        if (gltf.animations && gltf.animations.length > 0) {
-          this.modelAnimationMap.set(root, { clips: gltf.animations });
-          const mixer = new THREE.AnimationMixer(root);
-          gltf.animations.forEach(clip => mixer.clipAction(clip).play());
-          this._mixers.push(mixer);
-        }
-
-        root.name = nameHint || 'Modell';
-        this.scene.add(root);
-        this.editableObjects.push(root);
-
-        // Erstes Modell fokusieren
-        if (this.editableObjects.length === 1) {
-          this.focusObject(root);
-        }
-
-        this._fireSceneUpdate();
-      },
-      undefined,
-      err => console.error('Modell laden fehlgeschlagen:', err)
-    );
-  }
-
-  selectObject(obj) {
-    if (!obj || !this.editableObjects.includes(obj)) {
-      this.selectedObject = null;
-      this.transformControls.detach();
-      this.outlinePass.selectedObjects = [];
-      this.axesHelper.visible = false;
-    } else {
-      this.selectedObject = obj;
-      this.transformControls.attach(obj);
-      this.outlinePass.selectedObjects = [obj];
-      this.axesHelper.visible = true;
-      this.axesHelper.position.copy(obj.position);
-    }
-    // Orbit Ziel anpassen
-    if (this.selectedObject) {
-      this.controls.target.copy(this.selectedObject.position);
-      this.controls.update();
-    }
-    this.onSelectionChange?.();
-    this._fireSceneUpdate();
-  }
-
-  cycleGizmoMode() {
-    const mode = this.transformControls.getMode();
-    const order = ['translate','rotate','scale'];
-    const next = order[(order.indexOf(mode) + 1) % order.length];
-    this.transformControls.setMode(next);
-    return next;
-  }
-
-  focusSelected() {
-    if (this.selectedObject) this.focusObject(this.selectedObject);
-  }
-
-  focusObject(obj) {
-    if (!obj) return;
-    const offset = new THREE.Vector3(0, 0.5, 4);
-    this.camera.position.copy(obj.position).add(offset);
-    this.controls.target.copy(obj.position);
-    this.controls.update();
-  }
-
-  duplicateSelected() {
-    if (!this.selectedObject) return null;
-    const clone = this.selectedObject.clone(true);
-    clone.name = this.selectedObject.name + '_Copy';
-    clone.position.x += 0.5;
-    clone.position.z += 0.5;
-    clone.traverse(o => { o.userData.isEditable = true; });
-    this.scene.add(clone);
-    this.editableObjects.push(clone);
-    this.selectObject(clone);
-    this._fireSceneUpdate();
-    return clone;
-  }
-
-  deleteSelected() {
-    if (!this.selectedObject) return;
-    const idx = this.editableObjects.indexOf(this.selectedObject);
-    if (idx >= 0) this.editableObjects.splice(idx, 1);
-    this.scene.remove(this.selectedObject);
-    this.selectedObject = null;
-    this.transformControls.detach();
-    this.outlinePass.selectedObjects = [];
-    this.axesHelper.visible = false;
-    this._fireSceneUpdate();
-    this.onSelectionChange?.();
-  }
-
-  snapToGround() {
-    if (!this.selectedObject) return;
-    // Bounding Box holen
-    const box = new THREE.Box3().setFromObject(this.selectedObject);
-    const minY = box.min.y;
-    if (Number.isFinite(minY)) {
-      // Verschiebe so, dass die Unterkante auf y=0 liegt
-      this.selectedObject.position.y -= minY;
-      this.onTransformChange?.();
-      this._fireSceneUpdate();
-    }
-  }
-
-  toggleOutline() {
-    this._outlineEnabled = !this._outlineEnabled;
-    return this._outlineEnabled;
-  }
-
-  updateSelectedTransform(pos, rotDeg, scale) {
-    if (!this.selectedObject) return;
-    if (pos) {
-      if (Number.isFinite(pos.x)) this.selectedObject.position.x = pos.x;
-      if (Number.isFinite(pos.y)) this.selectedObject.position.y = pos.y;
-      if (Number.isFinite(pos.z)) this.selectedObject.position.z = pos.z;
-    }
-    if (rotDeg) {
-      const toRad = THREE.MathUtils.degToRad;
-      if (Number.isFinite(rotDeg.x)) this.selectedObject.rotation.x = toRad(rotDeg.x);
-      if (Number.isFinite(rotDeg.y)) this.selectedObject.rotation.y = toRad(rotDeg.y);
-      if (Number.isFinite(rotDeg.z)) this.selectedObject.rotation.z = toRad(rotDeg.z);
-    }
-    if (Number.isFinite(scale) && scale > 0) {
-      this.selectedObject.scale.set(scale, scale, scale);
-    }
-    this.axesHelper.position.copy(this.selectedObject.position);
-    this.onTransformChange?.();
-    this._fireSceneUpdate();
-  }
-
-  _fireSceneUpdate() {
-    this.onSceneUpdate?.();
-  }
-
-  getSceneConfig() {
-    const assets = []; // Kann später gefüllt werden
-
-    const clickableNodes = this.editableObjects
-      .filter(o => !!o.userData.linkUrl)
-      .map(o => ({
-        url: o.userData.linkUrl.trim(),
-        label: o.name || o.uuid,
-        position: {
-          x: Number(o.position.x.toFixed(3)),
-          y: Number(o.position.y.toFixed(3)),
-          z: Number(o.position.z.toFixed(3))
-        }
-      }));
-
-    const audio = (this.audioConfig && this.audioConfig.url)
-      ? {
-          url: this.audioConfig.url,
-          loop: !!this.audioConfig.loop,
-          delaySeconds: this.audioConfig.delaySeconds || 0,
-          volume: Math.min(1, Math.max(0, this.audioConfig.volume ?? 0.8)),
-          embedElement: true
-        }
-      : undefined;
-
-    const modelEntry = {
-      url: this.currentModelFileName || 'scene.glb'
-    };
-
-    return {
-      meta: {
-        title: 'ARea Scene V2',
-        createdAt: new Date().toISOString(),
-        animationStrategy: 'merged'
-      },
-      model: modelEntry,
-      audio,
-      clickableNodes,
-      assets
-    };
-  }
-
-  exportMergedGlbBlob() {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const exportableAssets = this.editableObjects.filter(o => o.userData.isEditable);
-        const tempScene = new THREE.Scene();
-        exportableAssets.forEach(asset => {
-          const clone = asset.clone();
-          tempScene.add(clone);
-        });
-
-        const animations = this.buildMergedAnimationClip(exportableAssets);
-        this.exporter.parse(
-          tempScene,
-          gltf => {
-            resolve(new Blob([gltf], { type: 'application/octet-stream' }));
-          },
-          error => { reject(error); },
-          {
-            binary: true,
-            animations: animations.length > 0 ? animations : undefined,
-            embedImages: true,
-            onlyVisible: true,
-            includeCustomExtensions: false
-          }
-        );
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  buildMergedAnimationClip(objects) {
-    const allClips = [];
-    objects.forEach(obj => {
-      if (this.modelAnimationMap.has(obj)) {
-        allClips.push(...this.modelAnimationMap.get(obj).clips);
-      }
-    });
-    if (allClips.length === 0) return [];
-    const mergedClip = new THREE.AnimationClip(
-      'merged_animation',
-      -1,
-      allClips.flatMap(clip => clip.tracks)
-    );
-    return [mergedClip];
+    li.appendChild(title);
+    li.appendChild(badge);
+    li.appendChild(sizeEl);
+    li.appendChild(actions);
+    ul.appendChild(li);
   }
 }
+
+function sanitizeUrl(raw) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  try {
+    const u = new URL(trimmed, window.location.origin);
+    if (u.protocol === 'http:' || u.protocol === 'https:') return u.href;
+  } catch(_) {}
+  return '';
+}
+
+function handleFiles(files){
+  for (const file of files){
+    const ext = getFileExtension(file.name);
+    if (['glb','gltf','usdz','jpg','jpeg','png','webp','bin',...AUDIO_EXT,...VIDEO_EXT].includes(ext)){
+      const assetName = file.name;
+      if (assetFiles.has(assetName)) {
+        const overwrite = confirm(`Datei "${assetName}" existiert schon. Überschreiben?`);
+        if (!overwrite) continue;
+        if (assetBlobUrls.has(assetName)) {
+          URL.revokeObjectURL(assetBlobUrls.get(assetName));
+          assetBlobUrls.delete(assetName);
+        }
+      }
+      assetFiles.set(assetName, file);
+      if (ext === 'glb' || ext === 'gltf'){
+        const blobUrl = URL.createObjectURL(file);
+        assetBlobUrls.set(assetName, blobUrl);
+        sceneManager.loadModel(blobUrl, assetName);
+      }
+      if (AUDIO_EXT.includes(ext)){
+        const sel = document.getElementById('sel-audio-file');
+        if (sel && ![...sel.options].some(o => o.value === assetName)) {
+          const opt = document.createElement('option');
+          opt.value = assetName; opt.textContent = assetName;
+          sel.appendChild(opt);
+        }
+      }
+    }
+  }
+  rebuildAssetList();
+}
+
+function init(){
+  const canvas = document.getElementById('main-canvas');
+  if (!canvas) {
+    console.error('Canvas #main-canvas nicht gefunden');
+    return;
+  }
+  sceneManager = new SceneManager(canvas);
+
+  // Shortcuts
+  window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return; // Keine Konflikte beim Tippen
+    const key = e.key.toLowerCase();
+    switch(key) {
+      case 'f': // Fokus
+        sceneManager.focusSelected();
+        break;
+      case 'g': // Snap to ground
+        sceneManager.snapToGround();
+        break;
+      case 'd': // Duplizieren
+        sceneManager.duplicateSelected();
+        break;
+      case 'r': { // Gizmo Mode wechseln
+        const m = sceneManager.cycleGizmoMode();
+        console.log('Gizmo Mode:', m);
+        break;
+      }
+      case 'o': { // Outline toggle
+        const enabled = sceneManager.toggleOutline();
+        console.log('Outline:', enabled);
+        break;
+      }
+      case 'escape': // Auswahl zurücksetzen
+        sceneManager.selectObject(null);
+        break;
+      case 'delete':
+      case 'backspace':
+        sceneManager.deleteSelected();
+        break;
+    }
+  });
+
+  const objectList = document.getElementById('object-list');
+  const propContent = document.getElementById('prop-content');
+  const propEmpty = document.getElementById('prop-empty');
+
+  const inpName = document.getElementById('inp-name');
+  const inpPos = { x: document.getElementById('inp-px'), y: document.getElementById('inp-py'), z: document.getElementById('inp-pz') };
+  const inpRot = { x: document.getElementById('inp-rx'), y: document.getElementById('inp-ry'), z: document.getElementById('inp-rz') };
+  const inpScale = document.getElementById('inp-s');
+  const inpLinkUrl = document.getElementById('inp-link-url');
+
+  const btnPublish = document.getElementById('btnPublish');
+  const publishStatus = document.getElementById('publish-status');
+
+  const selAudioFile = document.getElementById('sel-audio-file');
+  const chkAudioLoop = document.getElementById('chk-audio-loop');
+  const inpAudioDelay = document.getElementById('inp-audio-delay');
+  const inpAudioVol = document.getElementById('inp-audio-vol');
+
+  const audioState = { url:'', loop:false, delaySeconds:0, volume:0.8 };
+  function syncAudio(){
+    audioState.url = selAudioFile?.value || '';
+    audioState.loop = !!chkAudioLoop?.checked;
+    audioState.delaySeconds = parseFloat(inpAudioDelay?.value) || 0;
+    const v = parseFloat(inpAudioVol?.value);
+    audioState.volume = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.8;
+    sceneManager.setAudioConfig(audioState);
+  }
+  [selAudioFile, chkAudioLoop, inpAudioDelay, inpAudioVol].forEach(el => el && el.addEventListener('input', syncAudio));
+  syncAudio();
+
+  function refreshObjectList(){
+    if (!objectList) return;
+    objectList.innerHTML = '';
+    if (sceneManager.editableObjects.length === 0){
+      objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
+      return;
+    }
+    sceneManager.editableObjects.forEach(obj => {
+      const li = document.createElement('li');
+      li.textContent = obj.name || 'Unbenanntes Objekt';
+      if (sceneManager.selectedObject === obj) li.classList.add('selected');
+      li.onclick = () => sceneManager.selectObject(obj);
+      objectList.appendChild(li);
+    });
+  }
+
+  sceneManager.onSceneUpdate = () => {
+    refreshObjectList();
+  };
+
+  const updatePropsUI = () => {
+    const obj = sceneManager.selectedObject;
+    if (!propContent || !propEmpty) return;
+    if (obj){
+      propContent.classList.remove('hidden');
+      propEmpty.classList.add('hidden');
+      inpName.value = obj.name || '';
+      inpPos.x.value = obj.position.x.toFixed(2);
+      inpPos.y.value = obj.position.y.toFixed(2);
+      inpPos.z.value = obj.position.z.toFixed(2);
+      inpRot.x.value = THREE.MathUtils.radToDeg(obj.rotation.x).toFixed(1);
+      inpRot.y.value = THREE.MathUtils.radToDeg(obj.rotation.y).toFixed(1);
+      inpRot.z.value = THREE.MathUtils.radToDeg(obj.rotation.z).toFixed(1);
+      inpScale.value = obj.scale.x.toFixed(2);
+      inpLinkUrl.value = obj.userData.linkUrl || '';
+    } else {
+      propContent.classList.add('hidden');
+      propEmpty.classList.remove('hidden');
+      inpLinkUrl.value = '';
+    }
+  };
+
+  sceneManager.onSelectionChange = updatePropsUI;
+  sceneManager.onTransformChange = updatePropsUI;
+
+  function applyTransform(){
+    const p = {
+      x: parseFloat(inpPos.x.value),
+      y: parseFloat(inpPos.y.value),
+      z: parseFloat(inpPos.z.value)
+    };
+    const r = {
+      x: parseFloat(inpRot.x.value),
+      y: parseFloat(inpRot.y.value),
+      z: parseFloat(inpRot.z.value)
+    };
+    const s = parseFloat(inpScale.value);
+    sceneManager.updateSelectedTransform(p,r,s);
+    if (sceneManager.selectedObject) {
+      sceneManager.selectedObject.name = inpName.value;
+    }
+    refreshObjectList();
+  }
+  [inpName, inpScale, ...Object.values(inpPos), ...Object.values(inpRot)]
+    .forEach(el => el && el.addEventListener('input', applyTransform));
+
+  inpLinkUrl.addEventListener('input', () => {
+    if (sceneManager.selectedObject){
+      const sanitized = sanitizeUrl(inpLinkUrl.value);
+      sceneManager.selectedObject.userData.linkUrl = sanitized;
+      if (sanitized !== inpLinkUrl.value) {
+        inpLinkUrl.value = sanitized;
+      }
+    }
+  });
+
+  // Drag & Drop Overlay
+  const dropOverlay = document.getElementById('drop-overlay');
+  document.addEventListener('dragover', e => { e.preventDefault(); dropOverlay?.classList.add('drag-active'); });
+  document.addEventListener('dragleave', e => {
+    if (e.clientX === 0 || e.clientY === 0 || e.clientX === window.innerWidth || e.clientY === window.innerHeight){
+      dropOverlay?.classList.remove('drag-active');
+    }
+  });
+  dropOverlay?.addEventListener('drop', e => {
+    e.preventDefault(); dropOverlay.classList.remove('drag-active');
+    if (e.dataTransfer.items){
+      const fs=[]; for (const item of e.dataTransfer.items){ if (item.kind==='file') fs.push(item.getAsFile()); }
+      handleFiles(fs);
+    } else { handleFiles(e.dataTransfer.files); }
+  });
+
+  // Asset spezifisches Drop
+  const btnAddAssets = document.getElementById('btnAddAssets');
+  const assetInput = document.getElementById('asset-upload-input');
+  const assetDropzone = document.getElementById('asset-dropzone');
+  btnAddAssets?.addEventListener('click', () => assetInput?.click());
+  assetInput?.addEventListener('change', e => {
+    handleFiles(e.target.files); e.target.value = '';
+  });
+  assetDropzone?.addEventListener('dragover', e => { e.preventDefault(); assetDropzone.classList.add('drag-active'); });
+  assetDropzone?.addEventListener('dragleave', e => { if (e.relatedTarget === null) assetDropzone.classList.remove('drag-active'); });
+  assetDropzone?.addEventListener('drop', e => {
+    e.preventDefault(); assetDropzone.classList.remove('drag-active');
+    if (e.dataTransfer.items){
+      const fs=[]; for (const item of e.dataTransfer.items){ if (item.kind === 'file') fs.push(item.getAsFile()); }
+      handleFiles(fs);
+    } else { handleFiles(e.dataTransfer.files); }
+  });
+
+  rebuildAssetList();
+
+  // Publish
+  btnPublish?.addEventListener('click', async () => {
+    if (assetFiles.size === 0){
+      publishStatus.textContent = 'Fehler: Szene leer.';
+      return;
+    }
+    publishStatus.textContent = '⏳ Mergen & Publizieren…';
+    btnPublish.disabled = true;
+    const sceneId = `scene-${Date.now().toString(36)}`;
+    try {
+      const publishClient = new PublishClient(
+        CONFIG.WORKER_ORIGIN + CONFIG.PUBLISH_ENDPOINT,
+        CONFIG.VIEWER_BASE,
+        CONFIG.WORKER_ORIGIN
+      );
+      const sceneConfig = sceneManager.getSceneConfig();
+      const originalAssets = Array.from(assetFiles.values());
+
+      let mergedBlob = null;
+      try {
+        mergedBlob = await sceneManager.exportMergedGlbBlob();
+      } catch (errMerge) {
+        console.warn('Merge fehlgeschlagen, Fallback erstes GLB', errMerge);
+        const firstGlb = originalAssets.find(f => f.name.toLowerCase().endsWith('.glb'));
+        if (!firstGlb) throw new Error('Kein GLB für Fallback.');
+        mergedBlob = firstGlb;
+      }
+
+      if (!sceneConfig.model) {
+        sceneConfig.model = { url: 'scene.glb' };
+      } else {
+        sceneConfig.model.url = 'scene.glb';
+      }
+
+      const uploadAssets = [];
+      const mergedFile = new File([mergedBlob], 'scene.glb', { type: 'application/octet-stream' });
+      uploadAssets.push(mergedFile);
+
+      if (audioState.url && assetFiles.has(audioState.url)) {
+        uploadAssets.push(assetFiles.get(audioState.url));
+      }
+
+      const result = await publishClient.publish(sceneId, sceneConfig, uploadAssets);
+      publishStatus.innerHTML = `✅ <a href="${result.viewerUrl}" target="_blank" rel="noopener">Viewer öffnen</a>`;
+      console.log('Publish Erfolg:', result);
+    } catch (err){
+      console.error('Publish Error:', err);
+      publishStatus.textContent = '❌ Fehler: ' + err.message;
+    } finally {
+      btnPublish.disabled = false;
+    }
+  });
+}
+
+window.addEventListener('DOMContentLoaded', init);
