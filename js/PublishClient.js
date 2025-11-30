@@ -19,34 +19,41 @@ export class PublishClient {
     fd.append('file', jsonBlob, 'scene.json');
 
     for (const file of assets) {
-      fd.append('file', file, file.name); 
+      fd.append('file', file, file.name);
     }
 
-    // WICHTIG: Wir senden KEINEN Key. Der Proxy fügt ihn hinzu.
-    const res = await fetch(this.publishUrl, {
-      method: 'POST',
-      headers: { 
-        'X-AREA-Base': this.workerOrigin 
-      },
-      body: fd
-    });
+    let res;
+    try {
+      res = await fetch(this.publishUrl, {
+        method: 'POST',
+        headers: {
+          'X-AREA-Base': this.workerOrigin
+          // Content-Type bei FormData NICHT setzen (Browser setzt Boundary)
+        },
+        body: fd
+      });
+    } catch (networkErr) {
+      throw new Error('Netzwerkfehler beim Publish: ' + (networkErr?.message || networkErr));
+    }
 
     if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(res.status + ' ' + res.statusText + (txt ? ' – ' + txt : ''));
+      let txt = '';
+      try { txt = await res.text(); } catch(_) {}
+      throw new Error(`HTTP ${res.status} ${res.statusText}${txt ? ' – ' + txt : ''}`);
     }
 
-    const data = await res.json().catch(() => ({}));
-    
-    const returnedId = data.sceneId || sceneId;
+    let data = {};
+    try { data = await res.json(); } catch(_) {}
+
+    const returnedId = data.sceneId || sceneId;
     const viewerUrl = data.viewerUrl || (
       `${this.viewerBase}?scene=${encodeURIComponent(returnedId)}&base=${encodeURIComponent(this.workerOrigin)}`
     );
 
     return {
-        sceneId: returnedId,
-        viewerUrl: viewerUrl,
-        shareUrl: data.shareUrl || null
+      sceneId: returnedId,
+      viewerUrl,
+      shareUrl: data.shareUrl || null
     };
   }
 }
