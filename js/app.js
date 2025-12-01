@@ -390,7 +390,7 @@ function init(){
     }
     sceneManager.editableObjects.forEach(obj=>{
       const li=document.createElement('li');
-      li.textContent=obj.name || 'Unbenanntes Objekt';
+      li.textContent=obj.name||'Unbenanntes Objekt';
       if(sceneManager.selectedObjects.includes(obj)) li.classList.add('selected');
       li.addEventListener('click', e=>{
         sceneManager.selectObject(obj, e.shiftKey || e.ctrlKey || e.metaKey);
@@ -405,7 +405,7 @@ function init(){
 
   const updatePropsUI=()=>{
     const sel=sceneManager.selectedObjects;
-    if(!propContent || !propEmpty) return;
+    if(!propContent||!propEmpty) return;
     if(sel.length===1){
       propContent.classList.remove('hidden');
       propEmpty.classList.add('hidden');
