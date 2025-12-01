@@ -1,4 +1,4 @@
-import { SceneManager } from './SceneManager.js'; // WICHTIG: relativer Pfad ohne "js/"
+import { SceneManager } from './SceneManager.js';
 
 function init() {
   const canvas = document.getElementById('main-canvas');
@@ -7,12 +7,11 @@ function init() {
     return;
   }
   const mgr = new SceneManager(canvas);
-  // global, damit js/app.js (Controls-Addon) darauf zugreifen kann
   window.sceneManager = mgr;
 
-  // Optional Startwerte
-  // mgr.setExposure(1.6);
-  // mgr.setLightIntensities({ key: 1.6 });
+  // Standardmäßig etwas heller starten
+  mgr.setExposure(2.2);
+  mgr.setLightIntensities({ key: 2.5 });
 }
 
 window.addEventListener('DOMContentLoaded', init);
