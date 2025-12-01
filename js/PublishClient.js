@@ -1,58 +1,42 @@
 // PublishClient: Upload der Szene (scene.json + Assets) zum Worker
 export class PublishClient {
   /**
-   * @param {string} publishUrl - Ziel-Endpoint (z.B. https://area-publish.area-webar.workers.dev/publish)
-   * @param {string} viewerBase - Basis zum Viewer (wird für Fallback-URL genutzt, falls Server keine viewerUrl liefert)
-   * @param {string} workerOrigin - Basis-URL des Workers (kommt in den Header X-AREA-Base)
-   * @param {string} [publishKey] - Optionaler geheimer Key (aus localStorage/URL), wird als X-AREA-Key gesendet
+   * @param {string} publishUrl   Ziel-Endpoint (Proxy, z.B. https://area-publish-proxy.area-webar.workers.dev/publish)
+   * @param {string} viewerBase   Basis zum Viewer (Fallback, falls Server keine viewerUrl liefert)
+   * @param {string} workerOrigin Basis-URL des Workers (kommt in den Header X-AREA-Base)
    */
-  constructor(publishUrl, viewerBase, workerOrigin, publishKey = '') {
+  constructor(publishUrl, viewerBase, workerOrigin) {
     this.publishUrl = publishUrl;
     this.viewerBase = viewerBase;
     this.workerOrigin = this._normalizeOrigin(workerOrigin);
-    this.publishKey = publishKey || '';
   }
 
   _normalizeOrigin(input) {
     try {
       const u = new URL(input, window.location.href);
-      // Nur Origin, ohne Pfad/Query/Hash, und ohne Trailing Slash
       return u.origin.replace(/\/+$/, '');
     } catch {
       return (input || '').replace(/\/+$/, '');
     }
   }
 
-  /**
-   * @param {string} sceneId
-   * @param {object} sceneConfig
-   * @param {File[]} files
-   * @returns {Promise<{viewerUrl?: string, shareUrl?: string, sceneId?: string}>}
-   */
   async publish(sceneId, sceneConfig, files = []) {
     const form = new FormData();
     form.append('sceneId', sceneId);
 
-    // scene.json anhängen
     const sceneBlob = new Blob([JSON.stringify(sceneConfig, null, 2)], { type: 'application/json' });
     form.append('file', sceneBlob, 'scene.json');
 
-    // weitere Dateien (GLB, Texturen, Audio, Video, …)
     for (const f of files) {
       form.append('file', f, f.name);
-    }
-
-    const headers = {
-      'X-AREA-Base': this.workerOrigin
-    };
-    if (this.publishKey) {
-      headers['X-AREA-Key'] = this.publishKey;
     }
 
     const res = await fetch(this.publishUrl, {
       method: 'POST',
       body: form,
-      headers
+      headers: {
+        'X-AREA-Base': this.workerOrigin
+      }
     });
 
     if (!res.ok) {
@@ -62,7 +46,6 @@ export class PublishClient {
       throw new Error(`Publish fehlgeschlagen (${res.status}${statusText ? ' ' + statusText : ''}): ${body || 'Unbekannter Fehler'}`);
     }
 
-    // Antwort verarbeiten – falls viewerUrl fehlt, lokal konstruieren
     let data = {};
     try { data = await res.json(); } catch (_) {}
 
