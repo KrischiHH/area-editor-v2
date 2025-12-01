@@ -66,6 +66,7 @@ import { PublishClient } from './PublishClient.js';
         }
         // Audio-Select bereinigen
         const sel = document.getElementById('sel-audio-file');
+        const ext = getFileExtension(name);
         if (sel && AUDIO_EXT.includes(ext)) {
           [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
           if (sel.value === name) {
@@ -237,15 +238,23 @@ import { PublishClient } from './PublishClient.js';
     });
   }
 
-  // Endpunkte: aus URL oder localStorage lesen
+  // Endpunkte: feste Defaults, optional per URL überschreibbar
   function getEndpoints() {
     const params = new URLSearchParams(location.search);
-    const publishUrl = params.get('publish') || localStorage.getItem('area.publishUrl') || 'https://area-publish.area-webar.workers.dev/publish';
-    const viewerBase = params.get('viewer') || localStorage.getItem('area.viewerBase') || '';
-    const workerOrigin = params.get('base') || localStorage.getItem('area.workerOrigin') || 'https://area-publish.area-webar.workers.dev';
-    // NEU: Key auch aus URL ?key=… (falls zum Testen praktisch) – ansonsten aus localStorage
-    const publishKey = params.get('key') || localStorage.getItem('area.publishKey') || '';
-    return { publishUrl, viewerBase, workerOrigin, publishKey };
+
+    // immer über den Proxy gehen
+    const publishUrl   = params.get('publish')
+      || 'https://area-publish-proxy.area-webar.workers.dev/publish';
+
+    // Viewer-Basis (nur Fallback, der Worker liefert normalerweise viewerUrl)
+    const viewerBase   = params.get('viewer')
+      || 'https://krischihh.github.io/area-viewer-v2/viewer.html';
+
+    // Basis-URL des Workers (für ?base= und X-AREA-Base)
+    const workerOrigin = params.get('base')
+      || 'https://area-publish-proxy.area-webar.workers.dev';
+
+    return { publishUrl, viewerBase, workerOrigin };
   }
 
   // Publizieren
@@ -257,22 +266,19 @@ import { PublishClient } from './PublishClient.js';
     const show = (html) => { status.innerHTML = html; };
     const showText = (txt) => { status.textContent = txt; };
 
-    const { publishUrl, viewerBase, workerOrigin, publishKey } = getEndpoints();
+    // Hinweis zu gesetzten Endpunkten
+    const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
     if (!publishUrl || !viewerBase || !workerOrigin) {
-      show('Hinweis: Endpunkte fehlen. Übergib sie per URL-Parametern ?publish=…&viewer=…&base=… oder setze sie in localStorage (area.publishUrl, area.viewerBase, area.workerOrigin).');
-    }
-    if (!publishKey) {
-      // Nur Hinweis – Publish kann auch ohne Key erlaubt sein, je nach Worker-Konfig
-      console.warn('Kein Publish-Key gesetzt. Setze localStorage.setItem("area.publishKey", "<key>") oder ?key=… wenn der Worker es verlangt.');
+      show('Hinweis: Endpunkte fehlen. Übergib sie per URL-Parametern ?publish=…&viewer=…&base=…');
     }
 
     btn.addEventListener('click', async () => {
       const mgr = ensureSceneManager();
       if (!mgr) return;
 
-      const { publishUrl, viewerBase, workerOrigin, publishKey } = getEndpoints();
+      const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
       if (!publishUrl || !viewerBase || !workerOrigin) {
-        show('Fehlende Parameter. Beispiel-URL:<br><code>?publish=https://area-publish.area-webar.workers.dev/publish&viewer=https://krischihh.github.io/area-viewer-v2/viewer.html&base=https://area-publish.area-webar.workers.dev</code>');
+        show('Fehlende Parameter. Beispiel-URL:<br><code>?publish=https://area-publish-proxy.area-webar.workers.dev/publish&viewer=https://krischihh.github.io/area-viewer-v2/viewer.html&base=https://area-publish-proxy.area-webar.workers.dev</code>');
         return;
       }
 
@@ -295,14 +301,14 @@ import { PublishClient } from './PublishClient.js';
           console.warn('getSceneConfig(): model.url fehlt – bitte in SceneManager.getSceneConfig() prüfen.');
         }
 
-        // Szene-ID erzeugen
+        // Szene-ID erzeugen (slug + timestamp)
         const title = (sceneConfig.meta?.title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'scene';
         const sceneId = `${title}-${Date.now()}`;
 
         // Assets zusammenstellen (alle Files aus dem Asset-Panel)
         const assets = Array.from(assetFiles.values());
 
-        const client = new PublishClient(publishUrl, viewerBase, workerOrigin, publishKey);
+        const client = new PublishClient(publishUrl, viewerBase, workerOrigin);
         showText('Lade Szene hoch…');
         const res = await client.publish(sceneId, sceneConfig, assets);
 
@@ -321,7 +327,6 @@ import { PublishClient } from './PublishClient.js';
           status.appendChild(share);
         }
       } catch (e) {
-        // Klare Fehlermeldung – 403 sehr wahrscheinlich fehlender/falscher Key
         status.innerHTML = '';
         const div = document.createElement('div');
         div.style.whiteSpace = 'pre-wrap';
@@ -331,8 +336,8 @@ import { PublishClient } from './PublishClient.js';
         if (/403/.test(String(e?.message))) {
           const hint = document.createElement('div');
           hint.style.marginTop = '6px';
-          hint.innerHTML = 'Hinweis: 403 bedeutet meist fehlender/ungerichtiger Key. Setze im Browser:<br>' +
-            '<code>localStorage.setItem("area.publishKey", "DEIN_KEY")</code>';
+          hint.textContent =
+            'Hinweis: 403 kommt jetzt vom Worker/Proxy. Prüfe in Cloudflare, ob UPSTREAM_KEY und PUBLISH_KEY identisch sind und der Editor wirklich den Proxy-Endpunkt nutzt.';
           status.appendChild(hint);
         }
         console.error(e);
@@ -361,7 +366,7 @@ import { PublishClient } from './PublishClient.js';
       if (!objectList) return;
       objectList.innerHTML = '';
       if (mgr.editableObjects.length === 0) {
-        objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
+        objectList.innerHTML = '<li class="empty-state'>Keine Objekte</li>';
         return;
       }
       mgr.editableObjects.forEach(obj => {
@@ -388,7 +393,6 @@ import { PublishClient } from './PublishClient.js';
         inpPos.x.value = obj.position.x.toFixed(2);
         inpPos.y.value = obj.position.y.toFixed(2);
         inpPos.z.value = obj.position.z.toFixed(2);
-        // Rotation in Grad anzeigen
         const toDeg = a => (a * 180 / Math.PI).toFixed(1);
         inpRot.x.value = toDeg(obj.rotation.x);
         inpRot.y.value = toDeg(obj.rotation.y);
