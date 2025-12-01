@@ -258,7 +258,9 @@ import { PublishClient } from './PublishClient.js';
 
       const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
       if (!publishUrl || !viewerBase || !workerOrigin) {
-        show('Fehlende Parameter. Beispiel-URL:<br><code>?publish=https://area-publish-proxy.area-webar.workers.dev/publish&viewer=https://krischihh.github.io/area-viewer-v2/viewer.html&base=https://area-publish-proxy.area-webar.workers.dev</code>');
+        show(
+          'Fehlende Parameter. Beispiel-URL:<br><code>?publish=https://area-publish-proxy.area-webar.workers.dev/publish&viewer=https://krischihh.github.io/area-viewer-v2/viewer.html&base=https://area-publish-proxy.area-webar.workers.dev</code>'
+        );
         return;
       }
 
@@ -280,7 +282,10 @@ import { PublishClient } from './PublishClient.js';
           console.warn('getSceneConfig(): model.url fehlt – bitte prüfen.');
         }
 
-        const title = (sceneConfig.meta?.title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'scene';
+        const title = (sceneConfig.meta?.title || 'scene')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g,'-')
+          .replace(/^-+|-+$/g,'') || 'scene';
         const sceneId = `${title}-${Date.now()}`;
         const assets = Array.from(assetFiles.values());
 
@@ -299,7 +304,10 @@ import { PublishClient } from './PublishClient.js';
           const br = document.createElement('br');
           status.appendChild(br);
           const share = document.createElement('a');
-          share.href = res.shareUrl; share.textContent = 'Share-Link'; share.target = '_blank'; share.rel = 'noopener';
+          share.href = res.shareUrl;
+          share.textContent = 'Share-Link';
+          share.target = '_blank';
+          share.rel = 'noopener';
           status.appendChild(share);
         }
       } catch (e) {
@@ -326,27 +334,39 @@ import { PublishClient } from './PublishClient.js';
     const mgr = ensureSceneManager();
     if (!mgr) return;
 
-    const objectList = document.getElementById('object-list');
+    const objectList  = document.getElementById('object-list');
     const propContent = document.getElementById('prop-content');
-    const propEmpty = document.getElementById('prop-empty');
+    const propEmpty   = document.getElementById('prop-empty');
 
-    const inpName = document.getElementById('inp-name');
-    const inpPos = { x: document.getElementById('inp-px'), y: document.getElementById('inp-py'), z: document.getElementById('inp-pz') };
-    const inpRot = { x: document.getElementById('inp-rx'), y: document.getElementById('inp-ry'), z: document.getElementById('inp-rz') };
-    const inpScale = document.getElementById('inp-s');
+    const inpName    = document.getElementById('inp-name');
+    const inpPos     = {
+      x: document.getElementById('inp-px'),
+      y: document.getElementById('inp-py'),
+      z: document.getElementById('inp-pz')
+    };
+    const inpRot     = {
+      x: document.getElementById('inp-rx'),
+      y: document.getElementById('inp-ry'),
+      z: document.getElementById('inp-rz')
+    };
+    const inpScale   = document.getElementById('inp-s');
     const inpLinkUrl = document.getElementById('inp-link-url');
 
     function refreshObjectList() {
       if (!objectList) return;
       objectList.innerHTML = '';
+
       if (mgr.editableObjects.length === 0) {
-        objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
+        objectList.innerHTML = `<li class="empty-state">Keine Objekte</li>`;
         return;
       }
+
       mgr.editableObjects.forEach(obj => {
         const li = document.createElement('li');
         li.textContent = obj.name || 'Unbenannt';
-        if (mgr.selectedObjects.includes(obj)) li.classList.add('selected');
+        if (mgr.selectedObjects.includes(obj)) {
+          li.classList.add('selected');
+        }
         li.addEventListener('click', e => {
           mgr.selectObject(obj, e.shiftKey || e.ctrlKey || e.metaKey);
           refreshObjectList();
@@ -359,19 +379,23 @@ import { PublishClient } from './PublishClient.js';
     function updatePropsUI() {
       const sel = mgr.selectedObjects;
       if (!propContent || !propEmpty) return;
+
       if (sel.length === 1) {
         propContent.classList.remove('hidden');
         propEmpty.classList.add('hidden');
         const obj = sel[0];
-        inpName.value = obj.name || '';
-        inpPos.x.value = obj.position.x.toFixed(2);
-        inpPos.y.value = obj.position.y.toFixed(2);
-        inpPos.z.value = obj.position.z.toFixed(2);
+
+        inpName.value   = obj.name || '';
+        inpPos.x.value  = obj.position.x.toFixed(2);
+        inpPos.y.value  = obj.position.y.toFixed(2);
+        inpPos.z.value  = obj.position.z.toFixed(2);
+
         const toDeg = a => (a * 180 / Math.PI).toFixed(1);
         inpRot.x.value = toDeg(obj.rotation.x);
         inpRot.y.value = toDeg(obj.rotation.y);
         inpRot.z.value = toDeg(obj.rotation.z);
-        inpScale.value = obj.scale.x.toFixed(2);
+
+        inpScale.value   = obj.scale.x.toFixed(2);
         inpLinkUrl.value = obj.userData.linkUrl || '';
       } else {
         propContent.classList.add('hidden');
@@ -382,17 +406,29 @@ import { PublishClient } from './PublishClient.js';
 
     function applyTransform() {
       if (mgr.selectedObjects.length !== 1) return;
-      const p = { x: parseFloat(inpPos.x.value), y: parseFloat(inpPos.y.value), z: parseFloat(inpPos.z.value) };
-      const r = { x: parseFloat(inpRot.x.value), y: parseFloat(inpRot.y.value), z: parseFloat(inpRot.z.value) };
+      const p = {
+        x: parseFloat(inpPos.x.value),
+        y: parseFloat(inpPos.y.value),
+        z: parseFloat(inpPos.z.value)
+      };
+      const r = {
+        x: parseFloat(inpRot.x.value),
+        y: parseFloat(inpRot.y.value),
+        z: parseFloat(inpRot.z.value)
+      };
       const s = parseFloat(inpScale.value);
+
       mgr.updateSelectedTransform(p, r, s);
+
       if (mgr.selectedObjects.length === 1) {
         mgr.selectedObjects[0].name = inpName.value;
         refreshObjectList();
       }
     }
 
-    [inpName, inpScale, ...Object.values(inpPos), ...Object.values(inpRot)].forEach(el => el && el.addEventListener('input', applyTransform));
+    [inpName, inpScale, ...Object.values(inpPos), ...Object.values(inpRot)]
+      .forEach(el => el && el.addEventListener('input', applyTransform));
+
     inpLinkUrl?.addEventListener('input', () => {
       if (mgr.selectedObjects.length === 1) {
         const obj = mgr.selectedObjects[0];
