@@ -65,22 +65,22 @@ export class SceneManager {
       } else {
         if (this.pivotEditMode) {
           const end = this._captureTransform(this._pivot);
-          if (!this._compareTransform(this._pivotDragStart, end)) {
-            this._pushCommand({ type: 'groupPivotChange', prev: this._pivotDragStart, next: end });
-          }
+            if (!this._compareTransform(this._pivotDragStart, end)) {
+              this._pushCommand({ type: 'groupPivotChange', prev: this._pivotDragStart, next: end });
+            }
           this._pivotDragStart = null;
         } else if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
           const mode = this.transformControls.getMode();
-            const items = this.selectedObjects.map(o => ({
-              object: o,
-              prev: this._groupTransformStartStates.find(s => s.object === o)?.prev,
-              next: this._captureTransform(o)
-            }));
-            const changed = items.some(i => !this._compareTransform(i.prev, i.next));
-            if (changed) {
-              this._pushCommand({ type: 'groupTransform', mode, items });
-              this.onTransformChange?.();
-            }
+          const items = this.selectedObjects.map(o => ({
+            object: o,
+            prev: this._groupTransformStartStates.find(s => s.object === o)?.prev,
+            next: this._captureTransform(o)
+          }));
+          const changed = items.some(i => !this._compareTransform(i.prev, i.next));
+          if (changed) {
+            this._pushCommand({ type: 'groupTransform', mode, items });
+            this.onTransformChange?.();
+          }
         }
         this._groupTransformStartStates = null;
         this._pivotStartState = null;
@@ -165,14 +165,13 @@ export class SceneManager {
     window.addEventListener('resize', () => this._handleResize());
   }
 
-  /* ---------- New helper methods ---------- */
+  /* ---------- Helper / New Methods ---------- */
   setExposure(v){
     this.renderer.toneMappingExposure = Math.max(0.1, Math.min(5, v));
   }
 
   setLightIntensities({ ambient, key, fill }){
     if (!this._lights || this._lights.length === 0) return;
-    // Heuristik: in aero-simple Reihenfolge ambient,key,fill
     this._lights.forEach(l => {
       if (l.isAmbientLight && ambient !== undefined) l.intensity = ambient;
       if (l.isDirectionalLight) {
@@ -218,12 +217,9 @@ export class SceneManager {
         if (o.isMesh && o.material && o.material.color){
           const c = o.material.color;
           const lum = (c.r + c.g + c.b)/3;
-          const target = lum + faktor;
+            const target = lum + faktor;
           const scale = target / (lum || 0.001);
           c.multiplyScalar(scale);
-          if (o.material.map) {
-            // Optional: nichts tun – Textur bleibt.
-          }
           o.material.needsUpdate = true;
         }
       });
@@ -243,7 +239,6 @@ export class SceneManager {
     this.onSceneUpdate?.();
   }
 
-  /* ---------- Lighting Profiles ---------- */
   _clearLights() {
     this._lights.forEach(l => this.scene.remove(l));
     this._lights = [];
@@ -252,14 +247,9 @@ export class SceneManager {
   _applyLightingProfile(profile) {
     this._clearLights();
     if (profile === 'aero-simple') {
-      const ambient = new THREE.AmbientLight(0xffffff, 0.8);
-      ambient.userData.role = 'ambient';
-      const key = new THREE.DirectionalLight(0xffffff, 1.6);
-      key.position.set(4, 6, 4);
-      key.userData.role = 'key';
-      const fill = new THREE.DirectionalLight(0xffffff, 0.7);
-      fill.position.set(-5, 3, -2);
-      fill.userData.role = 'fill';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.8); ambient.userData.role='ambient';
+      const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(4,6,4); key.userData.role='key';
+      const fill = new THREE.DirectionalLight(0xffffff, 0.7); fill.position.set(-5,3,-2); fill.userData.role='fill';
       [ambient, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(ambient, key, fill);
       this.scene.environment = null;
@@ -268,37 +258,24 @@ export class SceneManager {
       const pmrem = new PMREMGenerator(this.renderer);
       const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
       this.scene.environment = env.texture;
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.9);
-      hemi.userData.role = 'hemi';
-      const ambient = new THREE.AmbientLight(0xffffff, 0.45);
-      ambient.userData.role = 'ambient';
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.9); hemi.userData.role='hemi';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.45); ambient.userData.role='ambient';
       this.scene.add(hemi, ambient);
       this._lights.push(hemi, ambient);
       this.renderer.toneMappingExposure = 1.4;
     } else if (profile === 'bright') {
-      const ambient = new THREE.AmbientLight(0xffffff, 1.0);
-      ambient.userData.role = 'ambient';
-      const key = new THREE.DirectionalLight(0xffffff, 2.0);
-      key.position.set(6, 9, 4);
-      key.userData.role = 'key';
-      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.2);
-      fill.position.set(-6, 5, -4);
-      fill.userData.role = 'fill';
+      const ambient = new THREE.AmbientLight(0xffffff, 1.0); ambient.userData.role='ambient';
+      const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(6,9,4); key.userData.role='key';
+      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.2); fill.position.set(-6,5,-4); fill.userData.role='fill';
       this.scene.add(ambient, key, fill);
       this._lights.push(ambient, key, fill);
       this.scene.environment = null;
       this.renderer.toneMappingExposure = 1.7;
     } else if (profile === 'studio') {
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05);
-      hemi.userData.role = 'hemi';
-      const key = new THREE.DirectionalLight(0xffffff, 1.55);
-      key.position.set(5, 7, 4);
-      key.userData.role = 'key';
-      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85);
-      fill.position.set(-6, 4, -3);
-      fill.userData.role = 'fill';
-      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
-      ambient.userData.role = 'ambient';
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05); hemi.userData.role='hemi';
+      const key = new THREE.DirectionalLight(0xffffff, 1.55); key.position.set(5,7,4); key.userData.role='key';
+      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85); fill.position.set(-6,4,-3); fill.userData.role='fill';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.5); ambient.userData.role='ambient';
       this.scene.add(hemi, key, fill, ambient);
       this._lights.push(hemi, key, fill, ambient);
       this.scene.environment = null;
@@ -314,7 +291,6 @@ export class SceneManager {
     return next;
   }
 
-  /* ---------- Utility / Resize ---------- */
   _handleResize() {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
@@ -359,7 +335,6 @@ export class SceneManager {
     this.redoStack.length = 0;
   }
 
-  /* ---------- Load ---------- */
   loadModel(url, nameHint) {
     this.loader.load(
       url,
@@ -390,7 +365,6 @@ export class SceneManager {
     );
   }
 
-  /* ---------- Selection & Pivot ---------- */
   selectObject(obj, additive = false) {
     if (!obj || !this.editableObjects.includes(obj)) {
       if (!additive) this.clearSelection();
@@ -530,6 +504,15 @@ export class SceneManager {
   deleteSelected() {
     if (this.selectedObjects.length === 0) return;
     const toDelete = [...this.selectedObjects];
+    // Mixer-Cleanup
+    this._mixers = this._mixers.filter(m => {
+      const root = m.getRoot?.() || m._root || m._rootObject;
+      if (root && toDelete.includes(root)) {
+        try { m.stopAllAction?.(); } catch(_) {}
+        return false;
+      }
+      return true;
+    });
     toDelete.forEach(obj => {
       const idx = this.editableObjects.indexOf(obj);
       if (idx >= 0) this.editableObjects.splice(idx, 1);
@@ -741,14 +724,21 @@ export class SceneManager {
   }
 
   buildMergedAnimationClip(objects) {
-    const allClips = [];
+    const allTracks = [];
     objects.forEach(o => {
-      if (this.modelAnimationMap.has(o)) {
-        allClips.push(...this.modelAnimationMap.get(o).clips);
-      }
+      const entry = this.modelAnimationMap.get(o);
+      if (!entry) return;
+      entry.clips.forEach(c => {
+        c.tracks.forEach(t => {
+          // Track-Kollision vermeiden: Präfix mit Objektname
+            const cloned = t.clone();
+          cloned.name = `${o.name || o.uuid}/${cloned.name}`;
+          allTracks.push(cloned);
+        });
+      });
     });
-    if (!allClips.length) return [];
-    const merged = new THREE.AnimationClip('merged_animation', -1, allClips.flatMap(c => c.tracks));
+    if (!allTracks.length) return [];
+    const merged = new THREE.AnimationClip('merged_animation', -1, allTracks);
     return [merged];
   }
 }
