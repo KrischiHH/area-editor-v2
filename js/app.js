@@ -66,8 +66,8 @@ import { PublishClient } from './PublishClient.js';
         }
         // Audio-Select bereinigen
         const sel = document.getElementById('sel-audio-file');
-        const ext = getFileExtension(name);
-        if (sel && AUDIO_EXT.includes(ext)) {
+        const ext2 = getFileExtension(name);
+        if (sel && AUDIO_EXT.includes(ext2)) {
           [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
           if (sel.value === name) {
             sel.value = '';
@@ -125,7 +125,6 @@ import { PublishClient } from './PublishClient.js';
       if (ext === 'glb' || ext === 'gltf') {
         const blobUrl = URL.createObjectURL(file);
         assetBlobUrls.set(file.name, blobUrl);
-        // in den Viewport laden
         try {
           mgr.loadModel(blobUrl, file.name);
         } catch (e) {
@@ -183,20 +182,17 @@ import { PublishClient } from './PublishClient.js';
     const assetDropzone = document.getElementById('asset-dropzone');
     const dropOverlay = document.getElementById('drop-overlay');
 
-    // Button -> File Picker
     btnAddAssets?.addEventListener('click', () => assetInput?.click());
     assetInput?.addEventListener('change', e => {
       handleFiles(e.target.files);
-      e.target.value = ''; // gleiche Datei erneut wählbar
+      e.target.value = '';
     });
 
-    // Globaler Drag-Overlay
     document.addEventListener('dragover', e => {
       e.preventDefault();
       dropOverlay?.classList.add('drag-active');
     });
     document.addEventListener('dragleave', e => {
-      // Wenn wir das Fenster verlassen, Overlay schließen
       if (e.clientX === 0 || e.clientY === 0 || e.clientX === window.innerWidth || e.clientY === window.innerHeight) {
         dropOverlay?.classList.remove('drag-active');
       }
@@ -215,7 +211,6 @@ import { PublishClient } from './PublishClient.js';
       }
     });
 
-    // Lokale Dropzone
     assetDropzone?.addEventListener('dragover', e => {
       e.preventDefault();
       assetDropzone.classList.add('drag-active');
@@ -241,23 +236,15 @@ import { PublishClient } from './PublishClient.js';
   // Endpunkte: feste Defaults, optional per URL überschreibbar
   function getEndpoints() {
     const params = new URLSearchParams(location.search);
-
-    // immer über den Proxy gehen
     const publishUrl   = params.get('publish')
       || 'https://area-publish-proxy.area-webar.workers.dev/publish';
-
-    // Viewer-Basis (nur Fallback, der Worker liefert normalerweise viewerUrl)
     const viewerBase   = params.get('viewer')
       || 'https://krischihh.github.io/area-viewer-v2/viewer.html';
-
-    // Basis-URL des Workers (für ?base= und X-AREA-Base)
     const workerOrigin = params.get('base')
       || 'https://area-publish-proxy.area-webar.workers.dev';
-
     return { publishUrl, viewerBase, workerOrigin };
   }
 
-  // Publizieren
   function wirePublish() {
     const btn = document.getElementById('btnPublish');
     const status = document.getElementById('publish-status');
@@ -266,7 +253,6 @@ import { PublishClient } from './PublishClient.js';
     const show = (html) => { status.innerHTML = html; };
     const showText = (txt) => { status.textContent = txt; };
 
-    // Hinweis zu gesetzten Endpunkten
     const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
     if (!publishUrl || !viewerBase || !workerOrigin) {
       show('Hinweis: Endpunkte fehlen. Übergib sie per URL-Parametern ?publish=…&viewer=…&base=…');
@@ -282,7 +268,6 @@ import { PublishClient } from './PublishClient.js';
         return;
       }
 
-      // Mindestens ein Modell nötig
       const hasModel = [...assetFiles.keys()].some(n => {
         const ext = getFileExtension(n);
         return ext === 'glb' || ext === 'gltf';
@@ -298,14 +283,11 @@ import { PublishClient } from './PublishClient.js';
       try {
         const sceneConfig = mgr.getSceneConfig();
         if (!sceneConfig?.model?.url) {
-          console.warn('getSceneConfig(): model.url fehlt – bitte in SceneManager.getSceneConfig() prüfen.');
+          console.warn('getSceneConfig(): model.url fehlt – bitte prüfen.');
         }
 
-        // Szene-ID erzeugen (slug + timestamp)
         const title = (sceneConfig.meta?.title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'scene';
         const sceneId = `${title}-${Date.now()}`;
-
-        // Assets zusammenstellen (alle Files aus dem Asset-Panel)
         const assets = Array.from(assetFiles.values());
 
         const client = new PublishClient(publishUrl, viewerBase, workerOrigin);
@@ -332,7 +314,6 @@ import { PublishClient } from './PublishClient.js';
         div.style.whiteSpace = 'pre-wrap';
         div.textContent = 'Fehler beim Publizieren: ' + (e?.message || e);
         status.appendChild(div);
-
         if (/403/.test(String(e?.message))) {
           const hint = document.createElement('div');
           hint.style.marginTop = '6px';
@@ -347,7 +328,6 @@ import { PublishClient } from './PublishClient.js';
     });
   }
 
-  // Optional: einfache Objektliste aktualisieren, wenn SceneManager Änderungen meldet
   function wireObjectList() {
     const mgr = ensureSceneManager();
     if (!mgr) return;
