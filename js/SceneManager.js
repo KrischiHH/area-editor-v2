@@ -1,574 +1,431 @@
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
-import { PMREMGenerator } from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { PublishClient } from './PublishClient.js';
 
-export class SceneManager {
-  constructor(canvas) {
-    this.canvas = canvas;
+// App-UI: Asset-Upload (Button + Drag&Drop), Audio-Panel und Publizieren
+// Voraussetzung: window.sceneManager ist bereits von js/main.js gesetzt.
 
-    this.scene = new THREE.Scene();
-    // Hintergrundfarbe für den Editor (dunkles Grau/Blau)
-    this.scene.background = new THREE.Color(0x0d1117);
+(() => {
+  // State
+  const assetFiles = new Map();      // name -> File
+  const assetBlobUrls = new Map();  // name -> objectURL
 
-    this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
-    this.camera.position.set(0, 1.6, 6);
+  const AUDIO_EXT = ['mp3','ogg','m4a'];
+  const VIDEO_EXT = ['mp4','webm'];
+  const IMAGE_EXT = ['jpg','jpeg','png','webp'];
+  const MODEL_EXT = ['glb','gltf','usdz','bin'];
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-    // Wichtig für PBR-Materialien und realistische Darstellung
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.8; // Leicht erhöhte Belichtung
-    this.renderer.shadowMap.enabled = false;
-    this.renderer.physicallyCorrectLights = true; // Empfohlen für moderne Beleuchtung
+  function getFileExtension(filename) {
+    return (filename || '').split('.').pop().toLowerCase();
+  }
 
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
-    this.controls.screenSpacePanning = true;
-    this.controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
-      MIDDLE: THREE.MOUSE.ROTATE,
-      RIGHT: THREE.MOUSE.PAN
-    };
-    this.controls.touches = {
-      ONE: THREE.TOUCH.ROTATE,
-      TWO: THREE.TOUCH.DOLLY_PAN
-    };
-    this.controls.minDistance = 0.4;
-    this.controls.maxDistance = 250;
-    this.controls.minPolarAngle = 0.0;
-    this.controls.maxPolarAngle = Math.PI;
-    this.controls.target.set(0, 1.0, 0);
-    this.controls.update();
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) return '';
+    const units = ['B','KB','MB','GB'];
+    let i = 0; let v = bytes;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return v.toFixed(v < 10 ? 2 : 1) + ' ' + units[i];
+  }
 
-    this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
-    this.transformControls.setSize(1.0);
-    this.transformControls.addEventListener('dragging-changed', e => {
-      this.controls.enabled = !e.value;
-      if (e.value) {
-        if (this.pivotEditMode) {
-          this._pivotDragStart = this._captureTransform(this._pivot);
-        } else if (this.selectedObjects.length > 0) {
-          this._groupTransformStartStates = this.selectedObjects.map(o => ({
-            object: o,
-            prev: this._captureTransform(o)
-          }));
-          this._pivotStartState = this._captureTransform(this._pivot);
-        }
-      } else {
-        if (this.pivotEditMode) {
-          const end = this._captureTransform(this._pivot);
-            if (!this._compareTransform(this._pivotDragStart, end)) {
-              this._pushCommand({ type: 'groupPivotChange', prev: this._pivotDragStart, next: end });
-            }
-          this._pivotDragStart = null;
-        } else if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
-          const mode = this.transformControls.getMode();
-          const items = this.selectedObjects.map(o => ({
-            object: o,
-            prev: this._groupTransformStartStates.find(s => s.object === o)?.prev,
-            next: this._captureTransform(o)
-          }));
-          const changed = items.some(i => !this._compareTransform(i.prev, i.next));
-          if (changed) {
-            this._pushCommand({ type: 'groupTransform', mode, items });
-            this.onTransformChange?.();
-          }
-        }
-        this._groupTransformStartStates = null;
-        this._pivotStartState = null;
-      }
-    });
-    this.transformControls.addEventListener('change', () => {
-      if (this.transformControls.dragging && this.selectedObjects.length > 1 && !this.pivotEditMode) {
-        this._applyPivotLiveTransform();
-      }
-    });
-    this.scene.add(this.transformControls);
+  function rebuildAssetList() {
+    const ul = document.getElementById('asset-list');
+    if (!ul) return;
+    ul.innerHTML = '';
+    if (assetFiles.size === 0) {
+      ul.innerHTML = '<li class="empty">Noch keine Assets</li>';
+      return;
+    }
+    for (const [name, file] of assetFiles.entries()) {
+      const li = document.createElement('li');
+      const title = document.createElement('div');
+      title.textContent = name;
 
-    this.currentLightProfile = 'aero-simple';
-    this._lights = [];
-    this.pmremGenerator = new PMREMGenerator(this.renderer); // PMREMGenerator einmal erstellen
-    this.roomEnvironment = new RoomEnvironment(this.renderer);
-    this._applyLightingProfile(this.currentLightProfile);
+      const badge = document.createElement('span');
+      badge.className = 'asset-type';
+      const ext = getFileExtension(name);
+      if (MODEL_EXT.includes(ext)) badge.textContent = 'model';
+      else if (IMAGE_EXT.includes(ext)) badge.textContent = 'image';
+      else if (AUDIO_EXT.includes(ext)) badge.textContent = 'audio';
+      else if (VIDEO_EXT.includes(ext)) badge.textContent = 'video';
+      else badge.textContent = 'other';
 
-    const grid = new THREE.GridHelper(50, 50, 0x9aa4af, 0x49525b);
-    grid.material.opacity = 0.9;
-    grid.material.transparent = true;
-    this.scene.add(grid);
+      const sizeEl = document.createElement('span');
+      sizeEl.style.fontSize = '10px';
+      sizeEl.style.color = 'var(--text-muted)';
+      sizeEl.textContent = formatBytes(file.size);
 
-    this.axesHelper = new THREE.AxesHelper(1.3);
-    this.axesHelper.visible = false;
-    this.scene.add(this.axesHelper);
+      const actions = document.createElement('div');
+      actions.className = 'asset-actions';
 
-    this.editableObjects = [];
-    this.selectedObjects = [];
-    this.audioConfig = null;
-    this.modelAnimationMap = new Map();
-    this._mixers = [];
-    this._clock = new THREE.Clock();
-    this._outlineEnabled = true;
+      const btnRemove = document.createElement('button');
+      btnRemove.textContent = '✕';
+      btnRemove.title = 'Asset entfernen';
+      btnRemove.onclick = () => {
+        // revoke object URL
+        if (assetBlobUrls.has(name)) {
+          URL.revokeObjectURL(assetBlobUrls.get(name));
+          assetBlobUrls.delete(name);
+        }
+        // Audio-Select bereinigen
+        const sel = document.getElementById('sel-audio-file');
+        if (sel && AUDIO_EXT.includes(ext)) {
+          [...sel.options].forEach(o => { if (o.value === name) o.remove(); });
+          if (sel.value === name) {
+            sel.value = '';
+            sel.dispatchEvent(new Event('input'));
+          }
+        }
+        assetFiles.delete(name);
+        rebuildAssetList();
+        syncAudioToScene();
+      };
 
-    this._pivot = new THREE.Object3D();
-    this._pivot.name = '_SelectionPivot';
-    this.scene.add(this._pivot);
-    this.pivotEditMode = false;
-    this._pivotDragStart = null;
+      actions.appendChild(btnRemove);
+      li.appendChild(title);
+      li.appendChild(badge);
+      li.appendChild(sizeEl);
+      li.appendChild(actions);
+      ul.appendChild(li);
+    }
+  }
 
-    this.undoStack = [];
-    this.redoStack = [];
-    this._groupTransformStartStates = null;
-    this._pivotStartState = null;
+  function ensureSceneManager() {
+    const mgr = window.sceneManager;
+    if (!mgr) {
+      console.error('sceneManager fehlt. Stelle sicher, dass js/main.js vor js/app.js geladen wird.');
+      return null;
+    }
+    return mgr;
+  }
 
-    this.loader = new GLTFLoader();
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
-    this.loader.setDRACOLoader(dracoLoader);
-    this.exporter = new GLTFExporter();
+  function handleFiles(fileList) {
+    const mgr = ensureSceneManager();
+    if (!mgr) return;
 
-    this.composer = new EffectComposer(this.renderer);
-    this.renderPass = new RenderPass(this.scene, this.camera);
-    this.outlinePass = new OutlinePass(new THREE.Vector2(canvas.clientWidth, canvas.clientHeight), this.scene, this.camera);
-    this.outlinePass.edgeStrength = 5.0;
-    this.outlinePass.edgeGlow = 0.3;
-    this.outlinePass.edgeThickness = 1.0;
-    this.outlinePass.pulsePeriod = 0;
-    this.outlinePass.visibleEdgeColor.set('#4da6ff');
-    this.outlinePass.hiddenEdgeColor.set('#1a3d66');
-    this.composer.addPass(this.renderPass);
-    this.composer.addPass(this.outlinePass);
+    const files = Array.from(fileList || []);
+    for (const file of files) {
+      const ext = getFileExtension(file.name);
+      if (![...MODEL_EXT, ...IMAGE_EXT, ...AUDIO_EXT, ...VIDEO_EXT].includes(ext)) {
+        console.warn('Nicht unterstützte Datei:', file.name);
+        continue;
+      }
 
-    this.onSceneUpdate = () => {};
-    this.onSelectionChange = () => {};
-    this.onTransformChange = () => {};
+      // Überschreiben handhaben (KRITISCHE KORREKTUR: confirm() muss vermieden werden)
+      if (assetFiles.has(file.name)) {
+        // Da native Bestätigungsdialoge blockierend/unbrauchbar sind, wird automatisch überschrieben.
+        console.warn(`Datei "${file.name}" existiert schon und wird automatisch überschrieben, da native Bestätigungsdialoge (confirm/alert) vermieden werden müssen.`);
+        
+        // Alte Objekt-URL widerrufen, falls vorhanden
+        if (assetBlobUrls.has(file.name)) {
+          URL.revokeObjectURL(assetBlobUrls.get(file.name));
+          assetBlobUrls.delete(file.name);
+        }
+      }
 
-    this._basicPreview = false;
+      assetFiles.set(file.name, file);
 
-    const animate = () => {
-      requestAnimationFrame(animate);
-      const delta = this._clock.getDelta();
-      this._mixers.forEach(m => m.update(delta));
-      this.controls.update();
-      if (this._outlineEnabled) {
-        this.composer.render();
-      } else {
-        this.renderer.render(this.scene, this.camera);
-      }
-    };
-    animate();
+      // Modelle sofort laden
+      if (ext === 'glb' || ext === 'gltf') {
+        const blobUrl = URL.createObjectURL(file);
+        assetBlobUrls.set(file.name, blobUrl);
+        // in den Viewport laden
+        try {
+          mgr.loadModel(blobUrl, file.name);
+        } catch (e) {
+          console.error('Fehler beim Laden des Modells:', e);
+        }
+      }
 
-    window.addEventListener('resize', () => this._handleResize());
-  }
+      // Audio in Auswahl anbieten
+      if (AUDIO_EXT.includes(ext)) {
+        const sel = document.getElementById('sel-audio-file');
+        if (sel && ![...sel.options].some(o => o.value === file.name)) {
+          const opt = document.createElement('option');
+          opt.value = file.name;
+          opt.textContent = file.name;
+          sel.appendChild(opt);
+        }
+      }
+    }
 
-  /* ---------- Helper / New Methods ---------- */
-  setExposure(v){
-    this.renderer.toneMappingExposure = Math.max(0.1, Math.min(5, v));
-  }
+    rebuildAssetList();
+    syncAudioToScene();
+  }
 
-  setLightIntensities({ ambient, key, fill }){
-    if (!this._lights || this._lights.length === 0) return;
-    this._lights.forEach(l => {
-      if (l.isAmbientLight && ambient !== undefined) l.intensity = ambient;
-      if (l.isDirectionalLight) {
-        if (key !== undefined && l.userData.role === 'key') l.intensity = key;
-        if (fill !== undefined && l.userData.role === 'fill') l.intensity = fill;
-      }
-    });
-  }
+  // Audio-Panel -> SceneManager
+  function syncAudioToScene() {
+    const mgr = ensureSceneManager();
+    if (!mgr) return;
+    const selAudioFile = document.getElementById('sel-audio-file');
+    const chkAudioLoop = document.getElementById('chk-audio-loop');
+    const inpDelay = document.getElementById('inp-audio-delay');
+    const inpVol = document.getElementById('inp-audio-vol');
 
-  enableEnvironment(flag){
-    if (flag){
-      // Verwenden der bereits erstellten Instanzen
-      const env = this.pmremGenerator.fromScene(this.roomEnvironment, 0.02);
-      this.scene.environment = env.texture;
-    } else {
-      this.scene.environment = null;
-    }
-  }
+    const state = {
+      url: selAudioFile?.value || '',
+      loop: !!chkAudioLoop?.checked,
+      delaySeconds: parseFloat(inpDelay?.value) || 0,
+      volume: (() => {
+        const v = parseFloat(inpVol?.value);
+        return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.8;
+      })()
+    };
+    mgr.setAudioConfig(state);
+  }
 
-  previewBasicMode(flag){
-    if (flag === this._basicPreview) return;
-    this._basicPreview = flag;
-    this.editableObjects.forEach(root => {
-      root.traverse(o => {
-        if (o.isMesh) {
-          if (flag){
-            if (!o.userData._origMaterial) o.userData._origMaterial = o.material;
-            o.material = new THREE.MeshBasicMaterial({ map: o.userData._origMaterial.map, color: o.userData._origMaterial.color });
-          } else {
-            if (o.userData._origMaterial) {
-              o.material = o.userData._origMaterial;
-              delete o.userData._origMaterial;
-            }
-          }
-        }
-      });
-    });
-  }
+  function wireAudioPanel() {
+    ['sel-audio-file','chk-audio-loop','inp-audio-delay','inp-audio-vol']
+      .map(id => document.getElementById(id))
+      .forEach(el => el && el.addEventListener('input', syncAudioToScene));
+    syncAudioToScene();
+  }
 
-  autoBrightenSelected(faktor=0.3){
-    this.selectedObjects.forEach(obj => {
-      obj.traverse(o=>{
-        if (o.isMesh && o.material && o.material.color){
-          const c = o.material.color;
-          const lum = (c.r + c.g + c.b)/3;
-            const target = lum + faktor;
-          const scale = target / (lum || 0.001);
-          c.multiplyScalar(scale);
-          o.material.needsUpdate = true;
-        }
-      });
-    });
-    this.onSceneUpdate?.();
-  }
+  function wireAssetButtons() {
+    const btnAddAssets = document.getElementById('btnAddAssets');
+    const assetInput = document.getElementById('asset-upload-input');
+    const assetDropzone = document.getElementById('asset-dropzone');
+    const dropOverlay = document.getElementById('drop-overlay');
 
-  disableVertexColorsInSelected(){
-    this.selectedObjects.forEach(obj=>{
-      obj.traverse(o=>{
-        if (o.isMesh && o.material && o.material.vertexColors){
-          o.material.vertexColors = false;
-          o.material.needsUpdate = true;
-        }
-      });
-    });
-    this.onSceneUpdate?.();
-  }
+    // Button -> File Picker
+    btnAddAssets?.addEventListener('click', () => assetInput?.click());
+    assetInput?.addEventListener('change', e => {
+      handleFiles(e.target.files);
+      e.target.value = ''; // gleiche Datei erneut wählbar
+    });
 
-  _clearLights() {
-    this._lights.forEach(l => this.scene.remove(l));
-    this._lights = [];
-  }
+    // Globaler Drag-Overlay
+    document.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropOverlay?.classList.add('drag-active');
+    });
+    document.addEventListener('dragleave', e => {
+      // Wenn wir das Fenster verlassen, Overlay schließen
+      if (e.clientX === 0 || e.clientY === 0 || e.clientX === window.innerWidth || e.clientY === window.innerHeight) {
+        dropOverlay?.classList.remove('drag-active');
+      }
+    });
+    dropOverlay?.addEventListener('drop', e => {
+      e.preventDefault();
+      dropOverlay.classList.remove('drag-active');
+      if (e.dataTransfer.items) {
+        const fs = [];
+        for (const item of e.dataTransfer.items) {
+          if (item.kind === 'file') fs.push(item.getAsFile());
+        }
+        handleFiles(fs);
+      } else {
+        handleFiles(e.dataTransfer.files);
+      }
+    });
 
-  _applyLightingProfile(profile) {
-    this._clearLights();
-    // NEU: PBR-freundlicher Standard, ähnlich wie Viewer-Neutral/Aero
-    if (profile === 'aero-simple') {
-      // 1. IBL-Umgebung für weiches Licht (Der "Aero" Look)
-      this.enableEnvironment(true);
-      // 2. Nur ein kräftiges DirectionalLight als Key Light
-      const key = new THREE.DirectionalLight(0xffffff, 2.2);
-      key.position.set(4, 6, 4);
-      key.userData.role = 'key';
-      this.scene.add(key);
-      this._lights.push(key);
-      this.renderer.toneMappingExposure = 1.8; // Helle Exposition
-      // Hintergrund bleibt auf Color (0x0d1117)
+    // Lokale Dropzone
+    assetDropzone?.addEventListener('dragover', e => {
+      e.preventDefault();
+      assetDropzone.classList.add('drag-active');
+    });
+    assetDropzone?.addEventListener('dragleave', e => {
+      if (e.relatedTarget === null) assetDropzone.classList.remove('drag-active');
+    });
+    assetDropzone?.addEventListener('drop', e => {
+      e.preventDefault();
+      assetDropzone.classList.remove('drag-active');
+      if (e.dataTransfer.items) {
+        const fs = [];
+        for (const item of e.dataTransfer.items) {
+          if (item.kind === 'file') fs.push(item.getAsFile());
+        }
+        handleFiles(fs);
+      } else {
+        handleFiles(e.dataTransfer.files);
+      }
+    });
+  }
 
-    } else if (profile === 'viewer-neutral-env') {
-      this.enableEnvironment(true);
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.9); hemi.userData.role='hemi';
-      const ambient = new THREE.AmbientLight(0xffffff, 0.45); ambient.userData.role='ambient';
-      this.scene.add(hemi, ambient);
-      this._lights.push(hemi, ambient);
-      this.renderer.toneMappingExposure = 1.4;
+  // Endpunkte: aus URL oder localStorage lesen
+  function getEndpoints() {
+    const params = new URLSearchParams(location.search);
+    const publishUrl = params.get('publish') || localStorage.getItem('area.publishUrl') || '';
+    const viewerBase = params.get('viewer') || localStorage.getItem('area.viewerBase') || '';
+    const workerOrigin = params.get('base') || localStorage.getItem('area.workerOrigin') || '';
+    return { publishUrl, viewerBase, workerOrigin };
+  }
 
-    } else if (profile === 'bright') {
-      this.enableEnvironment(false); // Kein IBL
-      const ambient = new THREE.AmbientLight(0xffffff, 1.0); ambient.userData.role='ambient';
-      const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(6,9,4); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.2); fill.position.set(-6,5,-4); fill.userData.role='fill';
-      this.scene.add(ambient, key, fill);
-      this._lights.push(ambient, key, fill);
-      this.renderer.toneMappingExposure = 1.7;
+  // Publizieren
+  function wirePublish() {
+    const btn = document.getElementById('btnPublish');
+    const status = document.getElementById('publish-status');
+    if (!btn || !status) return;
 
-    } else if (profile === 'studio') {
-      this.enableEnvironment(false); // Kein IBL
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05); hemi.userData.role='hemi';
-      const key = new THREE.DirectionalLight(0xffffff, 1.55); key.position.set(5,7,4); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85); fill.position.set(-6,4,-3); fill.userData.role='fill';
-      const ambient = new THREE.AmbientLight(0xffffff, 0.5); ambient.userData.role='ambient';
-      this.scene.add(hemi, key, fill, ambient);
-      this._lights.push(hemi, key, fill, ambient);
-      this.renderer.toneMappingExposure = 1.5;
-    }
-    this.currentLightProfile = profile;
-    this.renderer.render(this.scene, this.camera); // Sofortiges Rendern nach Lichtwechsel
-  }
+    const show = (html) => { status.innerHTML = html; };
+    const showText = (txt) => { status.textContent = txt; };
 
-  cycleLightProfile() {
-    const order = ['aero-simple', 'viewer-neutral-env', 'studio', 'bright'];
-    const next = order[(order.indexOf(this.currentLightProfile) + 1) % order.length];
-    this._applyLightingProfile(next);
-    return next;
-  }
+    // Hinweis zu gesetzten Endpunkten
+    const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
+    if (!publishUrl || !viewerBase || !workerOrigin) {
+      show('Hinweis: Endpunkte fehlen. Übergib sie per URL-Parametern ?publish=…&viewer=…&base=… oder setze sie in localStorage (area.publishUrl, area.viewerBase, area.workerOrigin).');
+    }
 
-  _handleResize() {
-    const w = this.canvas.clientWidth;
-    const h = this.canvas.clientHeight;
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
-    this.composer.setSize(w, h);
-  }
+    btn.addEventListener('click', async () => {
+      const mgr = ensureSceneManager();
+      if (!mgr) return;
 
-  setAudioConfig(cfg) { this.audioConfig = cfg; }
+      const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
+      if (!publishUrl || !viewerBase || !workerOrigin) {
+        show('Fehlende Parameter. Beispiel-URL:<br><code>?publish=https://api.example.com/publish&viewer=https://krischihh.github.io/area-viewer-v2/viewer.html&base=https://worker.example.com</code>');
+        return;
+      }
 
-  _captureTransform(obj) {
-    if (!obj) return null;
-    return {
-      position: obj.position.clone(),
-      rotation: obj.rotation.clone(),
-      scale: obj.scale.clone(),
-      name: obj.name
-    };
-  }
+      // Mindestens ein Modell nötig
+      const hasModel = [...assetFiles.keys()].some(n => {
+        const ext = getFileExtension(n);
+        return ext === 'glb' || ext === 'gltf';
+      });
+      if (!hasModel) {
+        show('Bitte zuerst ein GLB/GLTF-Modell hinzufügen.');
+        return;
+      }
 
-  _applyTransform(obj, state) {
-    if (!obj || !state) return;
-    obj.position.copy(state.position);
-    obj.rotation.copy(state.rotation);
-    obj.scale.copy(state.scale);
-    if (state.name !== undefined) obj.name = state.name;
-  }
+      btn.disabled = true;
+      showText('Bereite Upload vor…');
 
-  _compareTransform(a, b) {
-    if (!a || !b) return false;
-    return a.position.equals(b.position) &&
-      a.rotation.x === b.rotation.x &&
-      a.rotation.y === b.rotation.y &&
-      a.rotation.z === b.rotation.z &&
-      a.scale.equals(b.scale) &&
-      a.name === b.name;
-  }
+      try {
+        const sceneConfig = mgr.getSceneConfig();
+        // Falls getSceneConfig() kein model.url gesetzt hat, erzwingen wir einen Standard
+        if (!sceneConfig.model || !sceneConfig.model.url) {
+          sceneConfig.model = { url: 'scene.glb' };
+        }
 
-  _pushCommand(cmd) {
-    this.undoStack.push(cmd);
-    this.redoStack.length = 0;
-  }
+        // Szene-ID erzeugen (slug + timestamp)
+        const title = (sceneConfig.meta?.title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'scene';
+        const sceneId = `${title}-${Date.now()}`;
 
-  loadModel(url, nameHint) {
-    this.loader.load(
-      url,
-      gltf => {
-        const root = gltf.scene;
-        root.traverse(o => { o.userData.isEditable = true; });
-        root.traverse(o => {
-          // Korrektur von Schwarz (0x000000) zu einem dunklen Grau, falls nötig
-          if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x000000) {
-            o.material.color.setHex(0x2a313a);
-            o.material.needsUpdate = true;
-          }
-        });
-        if (gltf.animations?.length) {
-          this.modelAnimationMap.set(root, { clips: gltf.animations });
-          const mixer = new THREE.AnimationMixer(root);
-          gltf.animations.forEach(c => mixer.clipAction(c).play());
-          this._mixers.push(mixer);
-        }
-        root.name = nameHint || 'Modell';
-        // NEU: Dateiname für getSceneConfig() merken
-        this.currentModelFileName = nameHint || this.currentModelFileName || 'scene.glb';
+        // Assets zusammenstellen (alle Files aus dem Asset-Panel)
+        const assets = Array.from(assetFiles.values());
 
-        this.scene.add(root);
-        this.editableObjects.push(root);
-        this._pushCommand({ type: 'groupAdd', objects: [root] });
-        if (this.editableObjects.length === 1) this.focusObject(root);
-        this._fireSceneUpdate();
-      },
-      undefined,
-      err => console.error('Modell laden fehlgeschlagen:', err)
-    );
-  }
+        const client = new PublishClient(publishUrl, viewerBase, workerOrigin);
+        showText('Lade Szene hoch…');
+        const res = await client.publish(sceneId, sceneConfig, assets);
 
-  selectObject(obj, additive = false) {
-    if (!obj || !this.editableObjects.includes(obj)) {
-      if (!additive) this.clearSelection();
-      return;
-    }
-    if (additive) {
-      if (this.selectedObjects.includes(obj)) {
-        this.selectedObjects = this.selectedObjects.filter(o => o !== obj);
-      } else {
-        this.selectedObjects.push(obj);
-      }
-    } else {
-      this.selectedObjects = [obj];
-    }
-    this._updateSelectionVisuals();
-  }
+        const link = document.createElement('a');
+        link.href = res.viewerUrl;
+        link.textContent = 'Viewer öffnen';
+        link.target = '_blank';
+        link.rel = 'noopener';
+        status.innerHTML = 'Erfolg: ';
+        status.appendChild(link);
+        if (res.shareUrl) {
+          const br = document.createElement('br');
+          status.appendChild(br);
+          const share = document.createElement('a');
+          share.href = res.shareUrl; share.textContent = 'Share-Link'; share.target = '_blank'; share.rel = 'noopener';
+          status.appendChild(share);
+        }
+      } catch (e) {
+        showText('Fehler beim Publizieren: ' + (e?.message || e));
+        console.error(e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
 
-  clearSelection() {
-    this.selectedObjects = [];
-    this._updateSelectionVisuals();
-  }
+  // Optional: einfache Objektliste aktualisieren, wenn SceneManager Änderungen meldet
+  function wireObjectList() {
+    const mgr = ensureSceneManager();
+    if (!mgr) return;
 
-  selectAll() {
-    this.selectedObjects = [...this.editableObjects];
-    this._updateSelectionVisuals();
-  }
+    const objectList = document.getElementById('object-list');
+    const propContent = document.getElementById('prop-content');
+    const propEmpty = document.getElementById('prop-empty');
 
-  _updateSelectionVisuals() {
-    this.outlinePass.selectedObjects = [...this.selectedObjects];
-    if (this.selectedObjects.length === 0) {
-      this.transformControls.detach();
-      this.axesHelper.visible = false;
-      if (this.pivotEditMode) this.pivotEditMode = false;
-    } else if (this.selectedObjects.length === 1) {
-      const only = this.selectedObjects[0];
-      if (!this.pivotEditMode) this.transformControls.attach(only);
-      this.axesHelper.visible = true;
-      this.axesHelper.position.copy(only.position);
-      this.controls.target.copy(only.position);
-    } else {
-      const center = new THREE.Vector3();
-      this.selectedObjects.forEach(o => center.add(o.position));
-      center.multiplyScalar(1 / this.selectedObjects.length);
-      if (!this.pivotEditMode && this._pivotDragStart == null) {
-        this._pivot.position.copy(center);
-      }
-      if (!this.pivotEditMode) {
-        this.transformControls.attach(this._pivot);
-      }
-      this.axesHelper.visible = true;
-      this.axesHelper.position.copy(this._pivot.position);
-      this.controls.target.copy(this._pivot.position);
-    }
-    this.controls.update();
-    this.onSelectionChange?.();
-    this._fireSceneUpdate();
-  }
+    const inpName = document.getElementById('inp-name');
+    const inpPos = { x: document.getElementById('inp-px'), y: document.getElementById('inp-py'), z: document.getElementById('inp-pz') };
+    const inpRot = { x: document.getElementById('inp-rx'), y: document.getElementById('inp-ry'), z: document.getElementById('inp-rz') };
+    const inpScale = document.getElementById('inp-s');
+    const inpLinkUrl = document.getElementById('inp-link-url');
 
-  togglePivotEdit() {
-    if (this.selectedObjects.length < 2) return false;
-    this.pivotEditMode = !this.pivotEditMode;
-    this.transformControls.attach(this._pivot);
-    return this.pivotEditMode;
-  }
+    function refreshObjectList() {
+      if (!objectList) return;
+      objectList.innerHTML = '';
+      if (mgr.editableObjects.length === 0) {
+        objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
+        return;
+      }
+      mgr.editableObjects.forEach(obj => {
+        const li = document.createElement('li');
+        li.textContent = obj.name || 'Unbenannt';
+        if (mgr.selectedObjects.includes(obj)) li.classList.add('selected');
+        li.addEventListener('click', e => {
+          mgr.selectObject(obj, e.shiftKey || e.ctrlKey || e.metaKey);
+          refreshObjectList();
+          updatePropsUI();
+        });
+        objectList.appendChild(li);
+      });
+    }
 
-  _applyPivotLiveTransform() {
-    if (!this._pivotStartState || !this._pivot || this.selectedObjects.length < 2 || this.pivotEditMode) return;
-    const mode = this.transformControls.getMode();
-    const pivotPrev = this._pivotStartState.position;
-    const pivotCurrent = this._pivot.position.clone();
-    const deltaPos = pivotCurrent.clone().sub(pivotPrev);
+    function updatePropsUI() {
+      const sel = mgr.selectedObjects;
+      if (!propContent || !propEmpty) return;
+      if (sel.length === 1) {
+        propContent.classList.remove('hidden');
+        propEmpty.classList.add('hidden');
+        const obj = sel[0];
+        inpName.value = obj.name || '';
+        inpPos.x.value = obj.position.x.toFixed(2);
+        inpPos.y.value = obj.position.y.toFixed(2);
+        inpPos.z.value = obj.position.z.toFixed(2);
+        // Rotation in Grad anzeigen
+        const toDeg = a => (a * 180 / Math.PI).toFixed(1);
+        inpRot.x.value = toDeg(obj.rotation.x);
+        inpRot.y.value = toDeg(obj.rotation.y);
+        inpRot.z.value = toDeg(obj.rotation.z);
+        inpScale.value = obj.scale.x.toFixed(2);
+        inpLinkUrl.value = obj.userData.linkUrl || '';
+      } else {
+        propContent.classList.add('hidden');
+        propEmpty.classList.remove('hidden');
+        inpLinkUrl.value = '';
+      }
+    }
 
-    if (mode === 'translate') {
-      this.selectedObjects.forEach(o => o.position.add(deltaPos));
-    } else if (mode === 'rotate') {
-      const qPrev = new THREE.Quaternion().setFromEuler(this._pivotStartState.rotation);
-      const qCurr = new THREE.Quaternion().setFromEuler(this._pivot.rotation);
-      const qDelta = qPrev.clone().invert().multiply(qCurr);
-      this.selectedObjects.forEach(o => {
-        const offset = o.position.clone().sub(pivotPrev);
-        offset.applyQuaternion(qDelta);
-        o.position.copy(pivotPrev.clone().add(offset));
-        o.quaternion.multiply(qDelta);
-      });
-    } else if (mode === 'scale') {
-      const prevScale = this._pivotStartState.scale;
-      const currScale = this._pivot.scale;
-      const sx = currScale.x / (prevScale.x || 1);
-      this.selectedObjects.forEach(o => {
-        const offset = o.position.clone().sub(pivotPrev).multiplyScalar(sx);
-        o.position.copy(pivotPrev.clone().add(offset));
-        o.scale.multiplyScalar(sx);
-      });
-    }
-    this.axesHelper.position.copy(this._pivot.position);
-  }
+    function applyTransform() {
+      if (mgr.selectedObjects.length !== 1) return;
+      const p = { x: parseFloat(inpPos.x.value), y: parseFloat(inpPos.y.value), z: parseFloat(inpPos.z.value) };
+      // WICHTIG: Die Werte r.x/y/z sind in Grad (aus der UI). mgr.updateSelectedTransform MUSS diese intern in Radian umrechnen.
+      const r = { x: parseFloat(inpRot.x.value), y: parseFloat(inpRot.y.value), z: parseFloat(inpRot.z.value) };
+      const s = parseFloat(inpScale.value);
+      mgr.updateSelectedTransform(p, r, s);
+      if (mgr.selectedObjects.length === 1) {
+        mgr.selectedObjects[0].name = inpName.value;
+        refreshObjectList();
+      }
+    }
 
-  cycleGizmoMode() {
-    const mode = this.transformControls.getMode();
-    const order = ['translate','rotate','scale'];
-    const next = order[(order.indexOf(mode) + 1) % order.length];
-    this.transformControls.setMode(next);
-    return next;
-  }
+    [inpName, inpScale, ...Object.values(inpPos), ...Object.values(inpRot)].forEach(el => el && el.addEventListener('input', applyTransform));
+    inpLinkUrl?.addEventListener('input', () => {
+      if (mgr.selectedObjects.length === 1) {
+        const obj = mgr.selectedObjects[0];
+        const val = (inpLinkUrl.value || '').trim();
+        try {
+          if (val) new URL(val);
+          obj.userData.linkUrl = val;
+        } catch {
+          // ungültige URL ignorieren
+        }
+      }
+    });
 
-  focusSelected() {
-    if (this.selectedObjects.length === 0) return;
-    this.focusObject(this.selectedObjects[0]);
-  }
+    mgr.onSceneUpdate = () => {
+      refreshObjectList();
+      updatePropsUI();
+    };
+  }
 
-  focusObject(obj) {
-    if (!obj) return;
-    const offset = new THREE.Vector3(0, 0.5, 4);
-    this.camera.position.copy(obj.position).add(offset);
-    this.controls.target.copy(obj.position);
-    this.controls.update();
-  }
+  function init() {
+    wireAssetButtons();
+    wireAudioPanel();
+    wireObjectList();
+    wirePublish();
+  }
 
-  duplicateSelected() {
-    if (this.selectedObjects.length === 0) return [];
-    const newObjects = this.selectedObjects.map(src => {
-      const clone = src.clone(true);
-      clone.name = src.name + '_Copy';
-      clone.position.x += 0.5;
-      clone.position.z += 0.5;
-      clone.traverse(o => { o.userData.isEditable = true; });
-      this.scene.add(clone);
-      this.editableObjects.push(clone);
-      return clone;
-    });
-    this._pushCommand({ type: 'groupAdd', objects: newObjects });
-    this.selectedObjects = newObjects;
-    this._updateSelectionVisuals();
-    return newObjects;
-  }
-
-  deleteSelected() {
-    if (this.selectedObjects.length === 0) return;
-    const toDelete = [...this.selectedObjects];
-    // Mixer-Cleanup
-    this._mixers = this._mixers.filter(m => {
-      const root = m.getRoot?.() || m._root || m._rootObject;
-      if (root && toDelete.includes(root)) {
-        try { m.stopAllAction?.(); } catch(_) {}
-        return false;
-      }
-      return true;
-    });
-    toDelete.forEach(obj => {
-      const idx = this.editableObjects.indexOf(obj);
-      if (idx >= 0) this.editableObjects.splice(idx, 1);
-      this.scene.remove(obj);
-    });
-    this._pushCommand({
-      type: 'groupDelete',
-      objects: toDelete,
-      prevStates: toDelete.map(o => this._captureTransform(o))
-    });
-    this.selectedObjects = [];
-    this._updateSelectionVisuals();
-  }
-
-  snapToGround() {
-    if (this.selectedObjects.length === 0) return;
-    const beforeStates = this.selectedObjects.map(o => this._captureTransform(o));
-    this.selectedObjects.forEach(o => {
-      const box = new THREE.Box3().setFromObject(o);
-      const minY = box.min.y;
-      if (Number.isFinite(minY)) o.position.y -= minY;
-    });
-    const afterStates = this.selectedObjects.map(o => this._captureTransform(o));
-    const changed = afterStates.some((aft, i) => !this._compareTransform(beforeStates[i], aft));
-    if (changed) {
-      this._pushCommand({
-        type: 'groupTransform',
-        mode: 'snap',
-        items: this.selectedObjects.map((o, i) => ({
-          object: o,
-          prev: beforeStates[i],
-          next: afterStates[i]
-        }))
-      });
-      this.onTransformChange?.();
-      this._fireSceneUpdate();
-    }
-  }
-
-  toggleOutline() {
-    this._outlineEnabled = !this._outlineEnabled;
-    return this._outlineEnabled;
-  }
-}
+  window.addEventListener('DOMContentLoaded', init);
+})();
