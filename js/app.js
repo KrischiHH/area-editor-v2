@@ -5,7 +5,7 @@ import { PublishClient } from './PublishClient.js';
 
 (() => {
   // State
-  const assetFiles = new Map();     // name -> File
+  const assetFiles = new Map();      // name -> File
   const assetBlobUrls = new Map();  // name -> objectURL
 
   const AUDIO_EXT = ['mp3','ogg','m4a'];
@@ -108,10 +108,12 @@ import { PublishClient } from './PublishClient.js';
         continue;
       }
 
-      // Überschreiben bestätigen
+      // Überschreiben handhaben (KRITISCHE KORREKTUR: confirm() muss vermieden werden)
       if (assetFiles.has(file.name)) {
-        const overwrite = confirm(`Datei "${file.name}" existiert schon. Überschreiben?`);
-        if (!overwrite) continue;
+        // Da native Bestätigungsdialoge blockierend/unbrauchbar sind, wird automatisch überschrieben.
+        console.warn(`Datei "${file.name}" existiert schon und wird automatisch überschrieben, da native Bestätigungsdialoge (confirm/alert) vermieden werden müssen.`);
+        
+        // Alte Objekt-URL widerrufen, falls vorhanden
         if (assetBlobUrls.has(file.name)) {
           URL.revokeObjectURL(assetBlobUrls.get(file.name));
           assetBlobUrls.delete(file.name);
@@ -388,6 +390,7 @@ import { PublishClient } from './PublishClient.js';
     function applyTransform() {
       if (mgr.selectedObjects.length !== 1) return;
       const p = { x: parseFloat(inpPos.x.value), y: parseFloat(inpPos.y.value), z: parseFloat(inpPos.z.value) };
+      // WICHTIG: Die Werte r.x/y/z sind in Grad (aus der UI). mgr.updateSelectedTransform MUSS diese intern in Radian umrechnen.
       const r = { x: parseFloat(inpRot.x.value), y: parseFloat(inpRot.y.value), z: parseFloat(inpRot.z.value) };
       const s = parseFloat(inpScale.value);
       mgr.updateSelectedTransform(p, r, s);
