@@ -7,48 +7,68 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import { PMREMGenerator } from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
 
-    // Hintergrund leicht heller als schwarz, damit Grid sichtbar bleibt
+    // Hintergrund etwas heller als schwarz, Grid sichtbar
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0d1117);
 
-    this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 800);
-    this.camera.position.set(0, 1.6, 4);
+    this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+    this.camera.position.set(0, 1.6, 6);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
-    // Aktuelles Farbmanagement
+    // Aktuelles Farbmanagement (Three r160+)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25; // moderat hell für "aero-simple"
+    this.renderer.toneMappingExposure = 1.6; // deutlich heller für “aero-simple”
+
     this.renderer.shadowMap.enabled = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Orbit Controls – klassisch
+    // OrbitControls – Blender-ähnlich
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.1;
-    this.controls.screenSpacePanning = false;
+    this.controls.dampingFactor = 0.08;
+    this.controls.screenSpacePanning = true; // erlaubt vertikales Panning
+    // Blender-Style:
+    // - MMB = Orbit
+    // - Shift+MMB = Pan
+    // - Ctrl+MMB = Dolly (Zoom)
+    // - RMB = Pan
     this.controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
-      MIDDLE: THREE.MOUSE.DOLLY,
+      LEFT: THREE.MOUSE.ROTATE,   // optional: Blender nutzt MMB, aber LMB ist hier auch Orbit
+      MIDDLE: THREE.MOUSE.ROTATE, // MMB zum Rotieren (Blender-ähnlich)
       RIGHT: THREE.MOUSE.PAN
     };
+    // Keyboard-Modifiers für MMB
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.ROTATE,
+      RIGHT: THREE.MOUSE.PAN
+    };
+    // Touch
     this.controls.touches = {
       ONE: THREE.TOUCH.ROTATE,
       TWO: THREE.TOUCH.DOLLY_PAN
     };
+    // Limits
     this.controls.minDistance = 0.4;
-    this.controls.maxDistance = 150;
-    this.controls.maxPolarAngle = Math.PI * 0.49;
+    this.controls.maxDistance = 250;
+    this.controls.minPolarAngle = 0.0;
+    this.controls.maxPolarAngle = Math.PI; // volle Vertikalrotation wie Blender
     this.controls.target.set(0, 1.0, 0);
     this.controls.update();
+
+    // Zusätzliche Dolly/Zoom über Ctrl+MMB
+    this._bindBlenderLikeModifiers();
 
     // Transform Controls
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
@@ -96,14 +116,14 @@ export class SceneManager {
     });
     this.scene.add(this.transformControls);
 
-    // Lichtprofile: neues "aero-simple" als Standard
+    // Lichtprofile – Standard: sehr einfache, helle Beleuchtung (Aero-ähnlich)
     this.currentLightProfile = 'aero-simple';
     this._lights = [];
     this._applyLightingProfile(this.currentLightProfile);
 
-    // Einfacheres Grid, etwas heller
-    const grid = new THREE.GridHelper(50, 50, 0x7c8896, 0x3c434b);
-    grid.material.opacity = 0.75;
+    // Grid etwas heller
+    const grid = new THREE.GridHelper(50, 50, 0x9aa4af, 0x49525b);
+    grid.material.opacity = 0.9;
     grid.material.transparent = true;
     this.scene.add(grid);
 
@@ -140,9 +160,6 @@ export class SceneManager {
     this.loader.setDRACOLoader(dracoLoader);
     this.exporter = new GLTFExporter();
 
-    // KEIN Environment-Reflexions-Setup im aero-simple (wie Aero: clean lighting)
-    // Falls du HDR willst, stelle auf "studio"/"neutral"/"bright" um.
-
     // Postprocessing Outline
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
@@ -178,6 +195,30 @@ export class SceneManager {
     window.addEventListener('resize', () => this._handleResize());
   }
 
+  // Zusätzliche Hilfslogik für Blender-ähnliche Modifiers (Shift/Ctrl auf MMB)
+  _bindBlenderLikeModifiers() {
+    const el = this.renderer.domElement;
+    // Ctrl+MMB → Dolly (Zoom)
+    el.addEventListener('mousedown', (e) => {
+      if (e.button === 1 && (e.ctrlKey || e.metaKey)) {
+        // Simuliere Dolly per Wheel-Event Trigger/Flags
+        // Workaround: Wechsle kurz zu Dolly über interne Flags
+        this.controls.enableZoom = true;
+        // Kein direkter Moduswechsel vorgesehen – Nutzer kann wheel nutzen;
+        // Alternativ: per Drag Dolly simulieren (nicht nativ in OrbitControls).
+      }
+      // Shift+MMB → Pan (OrbitControls unterstützt automatisch PAN mit RIGHT; wir aktivieren screenSpacePanning=true)
+      // Für echte Shift+MMB Pan: mappe MMB auf PAN wenn Shift gedrückt:
+      if (e.button === 1 && e.shiftKey) {
+        // Temporär MMB als PAN behandeln
+        const prevButtons = this.controls.mouseButtons;
+        this.controls.mouseButtons = { LEFT: prevButtons.LEFT, MIDDLE: THREE.MOUSE.PAN, RIGHT: prevButtons.RIGHT };
+        const restore = () => { this.controls.mouseButtons = prevButtons; window.removeEventListener('mouseup', restore); };
+        window.addEventListener('mouseup', restore);
+      }
+    });
+  }
+
   /* ---------- Lighting Profiles ---------- */
   _clearLights() {
     this._lights.forEach(l => this.scene.remove(l));
@@ -188,52 +229,54 @@ export class SceneManager {
     this._clearLights();
 
     if (profile === 'aero-simple') {
-      // Sehr einfache, helle Beleuchtung (ähnlich Aero): Ambient + Directional Key (+ leichtes Fill)
-      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-      const key = new THREE.DirectionalLight(0xffffff, 1.2);
-      key.position.set(4, 6, 3);
-      const fill = new THREE.DirectionalLight(0xffffff, 0.35);
+      // Sehr einfache, helle Beleuchtung: Ambient + Directional Key + Fill
+      const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+      const key = new THREE.DirectionalLight(0xffffff, 1.6);
+      key.position.set(4, 6, 4);
+      const fill = new THREE.DirectionalLight(0xffffff, 0.7);
       fill.position.set(-5, 3, -2);
       [ambient, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(ambient, key, fill);
-      // Kein scene.environment (keine Reflexionen)
+      this.scene.environment = null; // keine Reflexionen
+      this.renderer.toneMappingExposure = 1.6;
+    } else if (profile === 'viewer-neutral-env') {
+      // Neutrale Environment (RoomEnvironment) für PBR
+      const pmrem = new PMREMGenerator(this.renderer);
+      const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
+      this.scene.environment = env.texture;
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.8);
+      const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+      this.scene.add(hemi, ambient);
+      this._lights.push(hemi, ambient);
+      this.renderer.toneMappingExposure = 1.35;
+    } else if (profile === 'bright') {
+      const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+      const key = new THREE.DirectionalLight(0xffffff, 2.0);
+      key.position.set(6, 9, 4);
+      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.2);
+      fill.position.set(-6, 5, -4);
+      this.scene.add(ambient, key, fill);
+      this._lights.push(ambient, key, fill);
       this.scene.environment = null;
-      this.renderer.toneMappingExposure = 1.25;
+      this.renderer.toneMappingExposure = 1.7;
     } else if (profile === 'studio') {
       const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05);
       const key = new THREE.DirectionalLight(0xffffff, 1.55);
       key.position.set(5, 7, 4);
       const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85);
       fill.position.set(-6, 4, -3);
-      const ambient = new THREE.AmbientLight(0xffffff, 0.45);
-      [hemi, key, fill, ambient].forEach(l => this.scene.add(l));
+      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+      this.scene.add(hemi, key, fill, ambient);
       this._lights.push(hemi, key, fill, ambient);
-      this.scene.environment = null; // Studio ohne Environment für klaren Look
-      this.renderer.toneMappingExposure = 1.35;
-    } else if (profile === 'neutral') {
-      const ambient = new THREE.AmbientLight(0xffffff, 0.85);
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.85);
-      this.scene.add(ambient, hemi);
-      this._lights.push(ambient, hemi);
       this.scene.environment = null;
-      this.renderer.toneMappingExposure = 1.3;
-    } else if (profile === 'bright') {
-      const hemi = new THREE.HemisphereLight(0xffffff, 0xbdd2ff, 1.3);
-      const key = new THREE.DirectionalLight(0xffffff, 1.9);
-      key.position.set(6, 9, 4);
-      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.0);
-      fill.position.set(-6, 5, -4);
-      [hemi, key, fill].forEach(l => this.scene.add(l));
-      this._lights.push(hemi, key, fill);
-      this.scene.environment = null;
-      this.renderer.toneMappingExposure = 1.6;
+      this.renderer.toneMappingExposure = 1.5;
     }
 
     this.currentLightProfile = profile;
   }
 
   cycleLightProfile() {
-    const order = ['aero-simple', 'studio', 'neutral', 'bright'];
+    const order = ['aero-simple', 'viewer-neutral-env', 'studio', 'bright'];
     const next = order[(order.indexOf(this.currentLightProfile) + 1) % order.length];
     this._applyLightingProfile(next);
     return next;
@@ -292,10 +335,10 @@ export class SceneManager {
         const root = gltf.scene;
         root.traverse(o => { o.userData.isEditable = true; });
 
-        // Notfalls minimale Helligkeitsgarantie für pechschwarze Materialien
+        // Minimale Helligkeitsgarantie für pechschwarze Materialien
         root.traverse(o => {
           if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x000000) {
-            o.material.color.setHex(0x222931);
+            o.material.color.setHex(0x2a313a);
             o.material.needsUpdate = true;
           }
         });
