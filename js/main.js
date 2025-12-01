@@ -1,4 +1,4 @@
-import { SceneManager } from './js/SceneManager.js';
+import { SceneManager } from './SceneManager.js'; // WICHTIG: relativer Pfad ohne "js/"
 
 function init() {
   const canvas = document.getElementById('main-canvas');
@@ -7,10 +7,10 @@ function init() {
     return;
   }
   const mgr = new SceneManager(canvas);
-  // global verfügbar für js/app.js (Controls-Addon)
+  // global, damit js/app.js (Controls-Addon) darauf zugreifen kann
   window.sceneManager = mgr;
 
-  // Optional: Startwerte
+  // Optional Startwerte
   // mgr.setExposure(1.6);
   // mgr.setLightIntensities({ key: 1.6 });
 }
