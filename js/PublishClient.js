@@ -1,67 +1,74 @@
-// /js/PublishClient.js
-
+// PublishClient: Upload der Szene (scene.json + Assets) zum Worker
 export class PublishClient {
-  // Kein Key mehr im Constructor nötig!
-  constructor(publishUrl, viewerBase, workerOrigin) {
-    this.publishUrl = publishUrl;
-    this.viewerBase = viewerBase;
-    this.workerOrigin = workerOrigin;
-  }
+  /**
+   * @param {string} publishUrl - Ziel-Endpoint (z.B. https://area-publish.area-webar.workers.dev/publish)
+   * @param {string} viewerBase - Basis zum Viewer (wird für Fallback-URL genutzt, falls Server keine viewerUrl liefert)
+   * @param {string} workerOrigin - Basis-URL des Workers (kommt in den Header X-AREA-Base)
+   * @param {string} [publishKey] - Optionaler geheimer Key (aus localStorage), wird als X-AREA-Key gesendet
+   */
+  constructor(publishUrl, viewerBase, workerOrigin, publishKey = '') {
+    this.publishUrl = publishUrl;
+    this.viewerBase = viewerBase;
+    this.workerOrigin = workerOrigin;
+    this.publishKey = publishKey || '';
+  }
 
-  async publish(sceneId, sceneConfig, assets) {
-    const fd = new FormData();
-    fd.append('sceneId', sceneId);
+  /**
+   * @param {string} sceneId
+   * @param {object} sceneConfig
+   * @param {File[]} files
+   * @returns {Promise<{viewerUrl?: string, shareUrl?: string, sceneId?: string}>}
+   */
+  async publish(sceneId, sceneConfig, files = []) {
+    const form = new FormData();
+    form.append('sceneId', sceneId);
 
-    // Erstelle eine Blob aus der Szene-Konfiguration
-    const jsonBlob = new Blob(
-      [JSON.stringify(sceneConfig, null, 2)],
-      { type: 'application/json' }
-    );
-    fd.append('file', jsonBlob, 'scene.json');
+    // scene.json anhängen
+    const sceneBlob = new Blob([JSON.stringify(sceneConfig, null, 2)], { type: 'application/json' });
+    form.append('file', sceneBlob, 'scene.json');
 
-    // Füge alle Assets hinzu
-    for (const file of assets) {
-      fd.append('file', file, file.name);
-    }
+    // weitere Dateien (GLB, Texturen, Audio, Video, …)
+    for (const f of files) {
+      form.append('file', f, f.name);
+    }
 
-    let res;
-    try {
-      // Versuche, die Daten an den Publish-Endpunkt zu senden
-      res = await fetch(this.publishUrl, {
-        method: 'POST',
-        headers: {
-          'X-AREA-Base': this.workerOrigin
-          // Content-Type bei FormData NICHT setzen (Browser setzt Boundary)
-        },
-        body: fd
-      });
-    } catch (networkErr) {
-      // Fehler bei der Netzwerkverbindung (z.B. CORS, Server down)
-      throw new Error('Netzwerkfehler beim Publish: ' + (networkErr?.message || networkErr));
-    }
+    const headers = {
+      'X-AREA-Base': this.workerOrigin
+    };
+    if (this.publishKey) {
+      headers['X-AREA-Key'] = this.publishKey;
+    }
 
-    if (!res.ok) {
-      // HTTP-Fehler (z.B. 404, 500, 401)
-      let txt = '';
-      try { txt = await res.text(); } catch(_) {}
-      throw new Error(`HTTP ${res.status} ${res.statusText}${txt ? ' – ' + txt : ''}`);
-    }
+    const res = await fetch(this.publishUrl, {
+      method: 'POST',
+      body: form,
+      headers
+    });
 
-    let data = {};
-    try { data = await res.json(); } catch(_) {}
+    if (!res.ok) {
+      let msg = '';
+      try { msg = await res.text(); } catch (_) {}
+      throw new Error(`Publish fehlgeschlagen (${res.status}): ${msg || 'Unbekannter Fehler'}`);
+    }
 
-    // Verwende die zurückgegebene sceneId oder die ursprüngliche ID
-    const returnedId = data.sceneId || sceneId;
+    // Antwort verarbeiten – falls viewerUrl fehlt, lokal konstruieren
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
 
-    // Erstelle die Viewer URL mit den korrekten Parametern
-    const viewerUrl = data.viewerUrl || (
-      `${this.viewerBase}?scene=${encodeURIComponent(returnedId)}&base=${encodeURIComponent(this.workerOrigin)}`
-    );
+    if (!data.viewerUrl && this.viewerBase) {
+      try {
+        const u = new URL(this.viewerBase, window.location.href);
+        if (!u.searchParams.has('scene')) u.searchParams.set('scene', sceneId);
+        if (!u.searchParams.has('base')) u.searchParams.set('base', this.workerOrigin);
+        data.viewerUrl = u.toString();
+      } catch (_) {
+        // viewerBase ist evtl. eine vollständige URL mit Parametern – dann nicht ändern
+        data.viewerUrl = `${this.viewerBase}?scene=${encodeURIComponent(sceneId)}&base=${encodeURIComponent(this.workerOrigin)}`;
+      }
+    }
 
-    return {
-      sceneId: returnedId,
-      viewerUrl,
-      shareUrl: data.shareUrl || null
-    };
-  }
+    return data;
+  }
 }
+
+export default PublishClient;
