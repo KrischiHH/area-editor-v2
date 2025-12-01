@@ -4,13 +4,23 @@ export class PublishClient {
    * @param {string} publishUrl - Ziel-Endpoint (z.B. https://area-publish.area-webar.workers.dev/publish)
    * @param {string} viewerBase - Basis zum Viewer (wird für Fallback-URL genutzt, falls Server keine viewerUrl liefert)
    * @param {string} workerOrigin - Basis-URL des Workers (kommt in den Header X-AREA-Base)
-   * @param {string} [publishKey] - Optionaler geheimer Key (aus localStorage), wird als X-AREA-Key gesendet
+   * @param {string} [publishKey] - Optionaler geheimer Key (aus localStorage/URL), wird als X-AREA-Key gesendet
    */
   constructor(publishUrl, viewerBase, workerOrigin, publishKey = '') {
     this.publishUrl = publishUrl;
     this.viewerBase = viewerBase;
-    this.workerOrigin = workerOrigin;
+    this.workerOrigin = this._normalizeOrigin(workerOrigin);
     this.publishKey = publishKey || '';
+  }
+
+  _normalizeOrigin(input) {
+    try {
+      const u = new URL(input, window.location.href);
+      // Nur Origin, ohne Pfad/Query/Hash, und ohne Trailing Slash
+      return u.origin.replace(/\/+$/, '');
+    } catch {
+      return (input || '').replace(/\/+$/, '');
+    }
   }
 
   /**
@@ -46,9 +56,10 @@ export class PublishClient {
     });
 
     if (!res.ok) {
-      let msg = '';
-      try { msg = await res.text(); } catch (_) {}
-      throw new Error(`Publish fehlgeschlagen (${res.status}): ${msg || 'Unbekannter Fehler'}`);
+      let body = '';
+      try { body = await res.text(); } catch (_) {}
+      const statusText = res.statusText || '';
+      throw new Error(`Publish fehlgeschlagen (${res.status}${statusText ? ' ' + statusText : ''}): ${body || 'Unbekannter Fehler'}`);
     }
 
     // Antwort verarbeiten – falls viewerUrl fehlt, lokal konstruieren
@@ -61,8 +72,7 @@ export class PublishClient {
         if (!u.searchParams.has('scene')) u.searchParams.set('scene', sceneId);
         if (!u.searchParams.has('base')) u.searchParams.set('base', this.workerOrigin);
         data.viewerUrl = u.toString();
-      } catch (_) {
-        // viewerBase ist evtl. eine vollständige URL mit Parametern – dann nicht ändern
+      } catch {
         data.viewerUrl = `${this.viewerBase}?scene=${encodeURIComponent(sceneId)}&base=${encodeURIComponent(this.workerOrigin)}`;
       }
     }
