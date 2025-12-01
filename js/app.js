@@ -1,4 +1,6 @@
-// App-UI: Asset-Upload (Button + Drag&Drop) und einfache Audio-Konfiguration
+import { PublishClient } from './PublishClient.js';
+
+// App-UI: Asset-Upload (Button + Drag&Drop), Audio-Panel und Publizieren
 // Voraussetzung: window.sceneManager ist bereits von js/main.js gesetzt.
 
 (() => {
@@ -235,6 +237,94 @@
     });
   }
 
+  // Endpunkte: aus URL oder localStorage lesen
+  function getEndpoints() {
+    const params = new URLSearchParams(location.search);
+    const publishUrl = params.get('publish') || localStorage.getItem('area.publishUrl') || '';
+    const viewerBase = params.get('viewer') || localStorage.getItem('area.viewerBase') || '';
+    const workerOrigin = params.get('base') || localStorage.getItem('area.workerOrigin') || '';
+    return { publishUrl, viewerBase, workerOrigin };
+  }
+
+  // Publizieren
+  function wirePublish() {
+    const btn = document.getElementById('btnPublish');
+    const status = document.getElementById('publish-status');
+    if (!btn || !status) return;
+
+    const show = (html) => { status.innerHTML = html; };
+    const showText = (txt) => { status.textContent = txt; };
+
+    // Hinweis zu gesetzten Endpunkten
+    const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
+    if (!publishUrl || !viewerBase || !workerOrigin) {
+      show('Hinweis: Endpunkte fehlen. Übergib sie per URL-Parametern ?publish=…&viewer=…&base=… oder setze sie in localStorage (area.publishUrl, area.viewerBase, area.workerOrigin).');
+    }
+
+    btn.addEventListener('click', async () => {
+      const mgr = ensureSceneManager();
+      if (!mgr) return;
+
+      const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
+      if (!publishUrl || !viewerBase || !workerOrigin) {
+        show('Fehlende Parameter. Beispiel-URL:<br><code>?publish=https://api.example.com/publish&viewer=https://krischihh.github.io/area-viewer-v2/viewer.html&base=https://worker.example.com</code>');
+        return;
+      }
+
+      // Mindestens ein Modell nötig
+      const hasModel = [...assetFiles.keys()].some(n => {
+        const ext = getFileExtension(n);
+        return ext === 'glb' || ext === 'gltf';
+      });
+      if (!hasModel) {
+        show('Bitte zuerst ein GLB/GLTF-Modell hinzufügen.');
+        return;
+      }
+
+      btn.disabled = true;
+      showText('Bereite Upload vor…');
+
+      try {
+        const sceneConfig = mgr.getSceneConfig();
+        // Falls getSceneConfig() kein model.url gesetzt hat, erzwingen wir einen Standard
+        if (!sceneConfig.model || !sceneConfig.model.url) {
+          sceneConfig.model = { url: 'scene.glb' };
+        }
+
+        // Szene-ID erzeugen (slug + timestamp)
+        const title = (sceneConfig.meta?.title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'scene';
+        const sceneId = `${title}-${Date.now()}`;
+
+        // Assets zusammenstellen (alle Files aus dem Asset-Panel)
+        const assets = Array.from(assetFiles.values());
+
+        const client = new PublishClient(publishUrl, viewerBase, workerOrigin);
+        showText('Lade Szene hoch…');
+        const res = await client.publish(sceneId, sceneConfig, assets);
+
+        const link = document.createElement('a');
+        link.href = res.viewerUrl;
+        link.textContent = 'Viewer öffnen';
+        link.target = '_blank';
+        link.rel = 'noopener';
+        status.innerHTML = 'Erfolg: ';
+        status.appendChild(link);
+        if (res.shareUrl) {
+          const br = document.createElement('br');
+          status.appendChild(br);
+          const share = document.createElement('a');
+          share.href = res.shareUrl; share.textContent = 'Share-Link'; share.target = '_blank'; share.rel = 'noopener';
+          status.appendChild(share);
+        }
+      } catch (e) {
+        showText('Fehler beim Publizieren: ' + (e?.message || e));
+        console.error(e);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   // Optional: einfache Objektliste aktualisieren, wenn SceneManager Änderungen meldet
   function wireObjectList() {
     const mgr = ensureSceneManager();
@@ -331,6 +421,7 @@
     wireAssetButtons();
     wireAudioPanel();
     wireObjectList();
+    wirePublish();
   }
 
   window.addEventListener('DOMContentLoaded', init);
