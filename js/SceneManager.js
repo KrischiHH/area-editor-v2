@@ -25,7 +25,8 @@ export class SceneManager {
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.6;
+    // Heller: globale Exposure leicht erhöhen
+    this.renderer.toneMappingExposure = 1.8;
     this.renderer.shadowMap.enabled = false;
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -93,7 +94,8 @@ export class SceneManager {
     });
     this.scene.add(this.transformControls);
 
-    this.currentLightProfile = 'aero-simple';
+    // Standardprofil: Environment-Lighting für hellere PBR-Darstellung
+    this.currentLightProfile = 'viewer-neutral-env';
     this._lights = [];
     this._applyLightingProfile(this.currentLightProfile);
 
@@ -274,7 +276,7 @@ export class SceneManager {
     } else if (profile === 'studio') {
       const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05); hemi.userData.role='hemi';
       const key = new THREE.DirectionalLight(0xffffff, 1.55); key.position.set(5,7,4); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85); fill.position.set(-6,4,-3); fill.userData.role='fill';
+      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85); fill.userData.role='fill'; fill.position.set(-6,4,-3);
       const ambient = new THREE.AmbientLight(0xffffff, 0.5); ambient.userData.role='ambient';
       this.scene.add(hemi, key, fill, ambient);
       this._lights.push(hemi, key, fill, ambient);
