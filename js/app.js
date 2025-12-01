@@ -243,7 +243,8 @@ import { PublishClient } from './PublishClient.js';
     const publishUrl = params.get('publish') || localStorage.getItem('area.publishUrl') || 'https://area-publish.area-webar.workers.dev/publish';
     const viewerBase = params.get('viewer') || localStorage.getItem('area.viewerBase') || '';
     const workerOrigin = params.get('base') || localStorage.getItem('area.workerOrigin') || 'https://area-publish.area-webar.workers.dev';
-    const publishKey = localStorage.getItem('area.publishKey') || '';
+    // NEU: Key auch aus URL ?key=… (falls zum Testen praktisch) – ansonsten aus localStorage
+    const publishKey = params.get('key') || localStorage.getItem('area.publishKey') || '';
     return { publishUrl, viewerBase, workerOrigin, publishKey };
   }
 
@@ -256,9 +257,13 @@ import { PublishClient } from './PublishClient.js';
     const show = (html) => { status.innerHTML = html; };
     const showText = (txt) => { status.textContent = txt; };
 
-    const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
+    const { publishUrl, viewerBase, workerOrigin, publishKey } = getEndpoints();
     if (!publishUrl || !viewerBase || !workerOrigin) {
       show('Hinweis: Endpunkte fehlen. Übergib sie per URL-Parametern ?publish=…&viewer=…&base=… oder setze sie in localStorage (area.publishUrl, area.viewerBase, area.workerOrigin).');
+    }
+    if (!publishKey) {
+      // Nur Hinweis – Publish kann auch ohne Key erlaubt sein, je nach Worker-Konfig
+      console.warn('Kein Publish-Key gesetzt. Setze localStorage.setItem("area.publishKey", "<key>") oder ?key=… wenn der Worker es verlangt.');
     }
 
     btn.addEventListener('click', async () => {
@@ -316,7 +321,20 @@ import { PublishClient } from './PublishClient.js';
           status.appendChild(share);
         }
       } catch (e) {
-        showText('Fehler beim Publizieren: ' + (e?.message || e));
+        // Klare Fehlermeldung – 403 sehr wahrscheinlich fehlender/falscher Key
+        status.innerHTML = '';
+        const div = document.createElement('div');
+        div.style.whiteSpace = 'pre-wrap';
+        div.textContent = 'Fehler beim Publizieren: ' + (e?.message || e);
+        status.appendChild(div);
+
+        if (/403/.test(String(e?.message))) {
+          const hint = document.createElement('div');
+          hint.style.marginTop = '6px';
+          hint.innerHTML = 'Hinweis: 403 bedeutet meist fehlender/ungerichtiger Key. Setze im Browser:<br>' +
+            '<code>localStorage.setItem("area.publishKey", "DEIN_KEY")</code>';
+          status.appendChild(hint);
+        }
         console.error(e);
       } finally {
         btn.disabled = false;
