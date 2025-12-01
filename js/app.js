@@ -59,12 +59,10 @@ import { PublishClient } from './PublishClient.js';
       btnRemove.textContent = '✕';
       btnRemove.title = 'Asset entfernen';
       btnRemove.onclick = () => {
-        // revoke object URL
         if (assetBlobUrls.has(name)) {
           URL.revokeObjectURL(assetBlobUrls.get(name));
           assetBlobUrls.delete(name);
         }
-        // Audio-Select bereinigen
         const sel = document.getElementById('sel-audio-file');
         const ext2 = getFileExtension(name);
         if (sel && AUDIO_EXT.includes(ext2)) {
@@ -109,7 +107,6 @@ import { PublishClient } from './PublishClient.js';
         continue;
       }
 
-      // Überschreiben bestätigen
       if (assetFiles.has(file.name)) {
         const overwrite = confirm(`Datei "${file.name}" existiert schon. Überschreiben?`);
         if (!overwrite) continue;
@@ -121,7 +118,6 @@ import { PublishClient } from './PublishClient.js';
 
       assetFiles.set(file.name, file);
 
-      // Modelle sofort laden
       if (ext === 'glb' || ext === 'gltf') {
         const blobUrl = URL.createObjectURL(file);
         assetBlobUrls.set(file.name, blobUrl);
@@ -132,7 +128,6 @@ import { PublishClient } from './PublishClient.js';
         }
       }
 
-      // Audio in Auswahl anbieten
       if (AUDIO_EXT.includes(ext)) {
         const sel = document.getElementById('sel-audio-file');
         if (sel && ![...sel.options].some(o => o.value === file.name)) {
@@ -148,7 +143,6 @@ import { PublishClient } from './PublishClient.js';
     syncAudioToScene();
   }
 
-  // Audio-Panel -> SceneManager
   function syncAudioToScene() {
     const mgr = ensureSceneManager();
     if (!mgr) return;
@@ -346,7 +340,7 @@ import { PublishClient } from './PublishClient.js';
       if (!objectList) return;
       objectList.innerHTML = '';
       if (mgr.editableObjects.length === 0) {
-        objectList.innerHTML = '<li class="empty-state'>Keine Objekte</li>';
+        objectList.innerHTML = '<li class="empty-state">Keine Objekte</li>';
         return;
       }
       mgr.editableObjects.forEach(obj => {
