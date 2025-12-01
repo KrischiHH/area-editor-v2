@@ -5,7 +5,7 @@ import { PublishClient } from './PublishClient.js';
 
 (() => {
   // State
-  const assetFiles = new Map();      // name -> File
+  const assetFiles = new Map();     // name -> File
   const assetBlobUrls = new Map();  // name -> objectURL
 
   const AUDIO_EXT = ['mp3','ogg','m4a'];
@@ -108,12 +108,10 @@ import { PublishClient } from './PublishClient.js';
         continue;
       }
 
-      // Überschreiben handhaben (KRITISCHE KORREKTUR: confirm() muss vermieden werden)
+      // Überschreiben bestätigen
       if (assetFiles.has(file.name)) {
-        // Da native Bestätigungsdialoge blockierend/unbrauchbar sind, wird automatisch überschrieben.
-        console.warn(`Datei "${file.name}" existiert schon und wird automatisch überschrieben, da native Bestätigungsdialoge (confirm/alert) vermieden werden müssen.`);
-        
-        // Alte Objekt-URL widerrufen, falls vorhanden
+        const overwrite = confirm(`Datei "${file.name}" existiert schon. Überschreiben?`);
+        if (!overwrite) continue;
         if (assetBlobUrls.has(file.name)) {
           URL.revokeObjectURL(assetBlobUrls.get(file.name));
           assetBlobUrls.delete(file.name);
@@ -242,10 +240,11 @@ import { PublishClient } from './PublishClient.js';
   // Endpunkte: aus URL oder localStorage lesen
   function getEndpoints() {
     const params = new URLSearchParams(location.search);
-    const publishUrl = params.get('publish') || localStorage.getItem('area.publishUrl') || '';
+    const publishUrl = params.get('publish') || localStorage.getItem('area.publishUrl') || 'https://area-publish.area-webar.workers.dev/publish';
     const viewerBase = params.get('viewer') || localStorage.getItem('area.viewerBase') || '';
-    const workerOrigin = params.get('base') || localStorage.getItem('area.workerOrigin') || '';
-    return { publishUrl, viewerBase, workerOrigin };
+    const workerOrigin = params.get('base') || localStorage.getItem('area.workerOrigin') || 'https://area-publish.area-webar.workers.dev';
+    const publishKey = localStorage.getItem('area.publishKey') || '';
+    return { publishUrl, viewerBase, workerOrigin, publishKey };
   }
 
   // Publizieren
@@ -257,7 +256,6 @@ import { PublishClient } from './PublishClient.js';
     const show = (html) => { status.innerHTML = html; };
     const showText = (txt) => { status.textContent = txt; };
 
-    // Hinweis zu gesetzten Endpunkten
     const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
     if (!publishUrl || !viewerBase || !workerOrigin) {
       show('Hinweis: Endpunkte fehlen. Übergib sie per URL-Parametern ?publish=…&viewer=…&base=… oder setze sie in localStorage (area.publishUrl, area.viewerBase, area.workerOrigin).');
@@ -267,9 +265,9 @@ import { PublishClient } from './PublishClient.js';
       const mgr = ensureSceneManager();
       if (!mgr) return;
 
-      const { publishUrl, viewerBase, workerOrigin } = getEndpoints();
+      const { publishUrl, viewerBase, workerOrigin, publishKey } = getEndpoints();
       if (!publishUrl || !viewerBase || !workerOrigin) {
-        show('Fehlende Parameter. Beispiel-URL:<br><code>?publish=https://api.example.com/publish&viewer=https://krischihh.github.io/area-viewer-v2/viewer.html&base=https://worker.example.com</code>');
+        show('Fehlende Parameter. Beispiel-URL:<br><code>?publish=https://area-publish.area-webar.workers.dev/publish&viewer=https://krischihh.github.io/area-viewer-v2/viewer.html&base=https://area-publish.area-webar.workers.dev</code>');
         return;
       }
 
@@ -288,19 +286,18 @@ import { PublishClient } from './PublishClient.js';
 
       try {
         const sceneConfig = mgr.getSceneConfig();
-        // Falls getSceneConfig() kein model.url gesetzt hat, erzwingen wir einen Standard
-        if (!sceneConfig.model || !sceneConfig.model.url) {
-          sceneConfig.model = { url: 'scene.glb' };
+        if (!sceneConfig?.model?.url) {
+          console.warn('getSceneConfig(): model.url fehlt – bitte in SceneManager.getSceneConfig() prüfen.');
         }
 
-        // Szene-ID erzeugen (slug + timestamp)
+        // Szene-ID erzeugen
         const title = (sceneConfig.meta?.title || 'scene').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'scene';
         const sceneId = `${title}-${Date.now()}`;
 
         // Assets zusammenstellen (alle Files aus dem Asset-Panel)
         const assets = Array.from(assetFiles.values());
 
-        const client = new PublishClient(publishUrl, viewerBase, workerOrigin);
+        const client = new PublishClient(publishUrl, viewerBase, workerOrigin, publishKey);
         showText('Lade Szene hoch…');
         const res = await client.publish(sceneId, sceneConfig, assets);
 
@@ -390,7 +387,6 @@ import { PublishClient } from './PublishClient.js';
     function applyTransform() {
       if (mgr.selectedObjects.length !== 1) return;
       const p = { x: parseFloat(inpPos.x.value), y: parseFloat(inpPos.y.value), z: parseFloat(inpPos.z.value) };
-      // WICHTIG: Die Werte r.x/y/z sind in Grad (aus der UI). mgr.updateSelectedTransform MUSS diese intern in Radian umrechnen.
       const r = { x: parseFloat(inpRot.x.value), y: parseFloat(inpRot.y.value), z: parseFloat(inpRot.z.value) };
       const s = parseFloat(inpScale.value);
       mgr.updateSelectedTransform(p, r, s);
