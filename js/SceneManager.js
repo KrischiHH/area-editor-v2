@@ -14,7 +14,6 @@ export class SceneManager {
   constructor(canvas) {
     this.canvas = canvas;
 
-    // Hintergrund etwas heller als schwarz, Grid sichtbar
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0d1117);
 
@@ -24,53 +23,31 @@ export class SceneManager {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-
-    // Aktuelles Farbmanagement (Three r160+)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.6; // deutlich heller für “aero-simple”
-
+    this.renderer.toneMappingExposure = 1.6;
     this.renderer.shadowMap.enabled = false;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // OrbitControls – Blender-ähnlich
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    this.controls.screenSpacePanning = true; // erlaubt vertikales Panning
-    // Blender-Style:
-    // - MMB = Orbit
-    // - Shift+MMB = Pan
-    // - Ctrl+MMB = Dolly (Zoom)
-    // - RMB = Pan
-    this.controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,   // optional: Blender nutzt MMB, aber LMB ist hier auch Orbit
-      MIDDLE: THREE.MOUSE.ROTATE, // MMB zum Rotieren (Blender-ähnlich)
-      RIGHT: THREE.MOUSE.PAN
-    };
-    // Keyboard-Modifiers für MMB
+    this.controls.screenSpacePanning = true;
     this.controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.ROTATE,
       RIGHT: THREE.MOUSE.PAN
     };
-    // Touch
     this.controls.touches = {
       ONE: THREE.TOUCH.ROTATE,
       TWO: THREE.TOUCH.DOLLY_PAN
     };
-    // Limits
     this.controls.minDistance = 0.4;
     this.controls.maxDistance = 250;
     this.controls.minPolarAngle = 0.0;
-    this.controls.maxPolarAngle = Math.PI; // volle Vertikalrotation wie Blender
+    this.controls.maxPolarAngle = Math.PI;
     this.controls.target.set(0, 1.0, 0);
     this.controls.update();
 
-    // Zusätzliche Dolly/Zoom über Ctrl+MMB
-    this._bindBlenderLikeModifiers();
-
-    // Transform Controls
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
     this.transformControls.setSize(1.0);
     this.transformControls.addEventListener('dragging-changed', e => {
@@ -94,16 +71,16 @@ export class SceneManager {
           this._pivotDragStart = null;
         } else if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
           const mode = this.transformControls.getMode();
-          const items = this.selectedObjects.map(o => ({
-            object: o,
-            prev: this._groupTransformStartStates.find(s => s.object === o)?.prev,
-            next: this._captureTransform(o)
-          }));
-          const changed = items.some(i => !this._compareTransform(i.prev, i.next));
-          if (changed) {
-            this._pushCommand({ type: 'groupTransform', mode, items });
-            this.onTransformChange?.();
-          }
+            const items = this.selectedObjects.map(o => ({
+              object: o,
+              prev: this._groupTransformStartStates.find(s => s.object === o)?.prev,
+              next: this._captureTransform(o)
+            }));
+            const changed = items.some(i => !this._compareTransform(i.prev, i.next));
+            if (changed) {
+              this._pushCommand({ type: 'groupTransform', mode, items });
+              this.onTransformChange?.();
+            }
         }
         this._groupTransformStartStates = null;
         this._pivotStartState = null;
@@ -116,12 +93,10 @@ export class SceneManager {
     });
     this.scene.add(this.transformControls);
 
-    // Lichtprofile – Standard: sehr einfache, helle Beleuchtung (Aero-ähnlich)
     this.currentLightProfile = 'aero-simple';
     this._lights = [];
     this._applyLightingProfile(this.currentLightProfile);
 
-    // Grid etwas heller
     const grid = new THREE.GridHelper(50, 50, 0x9aa4af, 0x49525b);
     grid.material.opacity = 0.9;
     grid.material.transparent = true;
@@ -131,7 +106,6 @@ export class SceneManager {
     this.axesHelper.visible = false;
     this.scene.add(this.axesHelper);
 
-    // State
     this.editableObjects = [];
     this.selectedObjects = [];
     this.audioConfig = null;
@@ -140,27 +114,23 @@ export class SceneManager {
     this._clock = new THREE.Clock();
     this._outlineEnabled = true;
 
-    // Pivot
     this._pivot = new THREE.Object3D();
     this._pivot.name = '_SelectionPivot';
     this.scene.add(this._pivot);
     this.pivotEditMode = false;
     this._pivotDragStart = null;
 
-    // Undo/Redo
     this.undoStack = [];
     this.redoStack = [];
     this._groupTransformStartStates = null;
     this._pivotStartState = null;
 
-    // Loader / Exporter
     this.loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
     this.loader.setDRACOLoader(dracoLoader);
     this.exporter = new GLTFExporter();
 
-    // Postprocessing Outline
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
     this.outlinePass = new OutlinePass(new THREE.Vector2(canvas.clientWidth, canvas.clientHeight), this.scene, this.camera);
@@ -173,12 +143,12 @@ export class SceneManager {
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.outlinePass);
 
-    // Callbacks
     this.onSceneUpdate = () => {};
     this.onSelectionChange = () => {};
     this.onTransformChange = () => {};
 
-    // Render Loop
+    this._basicPreview = false;
+
     const animate = () => {
       requestAnimationFrame(animate);
       const delta = this._clock.getDelta();
@@ -195,28 +165,82 @@ export class SceneManager {
     window.addEventListener('resize', () => this._handleResize());
   }
 
-  // Zusätzliche Hilfslogik für Blender-ähnliche Modifiers (Shift/Ctrl auf MMB)
-  _bindBlenderLikeModifiers() {
-    const el = this.renderer.domElement;
-    // Ctrl+MMB → Dolly (Zoom)
-    el.addEventListener('mousedown', (e) => {
-      if (e.button === 1 && (e.ctrlKey || e.metaKey)) {
-        // Simuliere Dolly per Wheel-Event Trigger/Flags
-        // Workaround: Wechsle kurz zu Dolly über interne Flags
-        this.controls.enableZoom = true;
-        // Kein direkter Moduswechsel vorgesehen – Nutzer kann wheel nutzen;
-        // Alternativ: per Drag Dolly simulieren (nicht nativ in OrbitControls).
-      }
-      // Shift+MMB → Pan (OrbitControls unterstützt automatisch PAN mit RIGHT; wir aktivieren screenSpacePanning=true)
-      // Für echte Shift+MMB Pan: mappe MMB auf PAN wenn Shift gedrückt:
-      if (e.button === 1 && e.shiftKey) {
-        // Temporär MMB als PAN behandeln
-        const prevButtons = this.controls.mouseButtons;
-        this.controls.mouseButtons = { LEFT: prevButtons.LEFT, MIDDLE: THREE.MOUSE.PAN, RIGHT: prevButtons.RIGHT };
-        const restore = () => { this.controls.mouseButtons = prevButtons; window.removeEventListener('mouseup', restore); };
-        window.addEventListener('mouseup', restore);
+  /* ---------- New helper methods ---------- */
+  setExposure(v){
+    this.renderer.toneMappingExposure = Math.max(0.1, Math.min(5, v));
+  }
+
+  setLightIntensities({ ambient, key, fill }){
+    if (!this._lights || this._lights.length === 0) return;
+    // Heuristik: in aero-simple Reihenfolge ambient,key,fill
+    this._lights.forEach(l => {
+      if (l.isAmbientLight && ambient !== undefined) l.intensity = ambient;
+      if (l.isDirectionalLight) {
+        if (key !== undefined && l.userData.role === 'key') l.intensity = key;
+        if (fill !== undefined && l.userData.role === 'fill') l.intensity = fill;
       }
     });
+  }
+
+  enableEnvironment(flag){
+    if (flag){
+      const pmrem = new PMREMGenerator(this.renderer);
+      const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
+      this.scene.environment = env.texture;
+    } else {
+      this.scene.environment = null;
+    }
+  }
+
+  previewBasicMode(flag){
+    if (flag === this._basicPreview) return;
+    this._basicPreview = flag;
+    this.editableObjects.forEach(root => {
+      root.traverse(o => {
+        if (o.isMesh) {
+          if (flag){
+            if (!o.userData._origMaterial) o.userData._origMaterial = o.material;
+            o.material = new THREE.MeshBasicMaterial({ map: o.userData._origMaterial.map, color: o.userData._origMaterial.color });
+          } else {
+            if (o.userData._origMaterial) {
+              o.material = o.userData._origMaterial;
+              delete o.userData._origMaterial;
+            }
+          }
+        }
+      });
+    });
+  }
+
+  autoBrightenSelected(faktor=0.3){
+    this.selectedObjects.forEach(obj => {
+      obj.traverse(o=>{
+        if (o.isMesh && o.material && o.material.color){
+          const c = o.material.color;
+          const lum = (c.r + c.g + c.b)/3;
+          const target = lum + faktor;
+          const scale = target / (lum || 0.001);
+          c.multiplyScalar(scale);
+          if (o.material.map) {
+            // Optional: nichts tun – Textur bleibt.
+          }
+          o.material.needsUpdate = true;
+        }
+      });
+    });
+    this.onSceneUpdate?.();
+  }
+
+  disableVertexColorsInSelected(){
+    this.selectedObjects.forEach(obj=>{
+      obj.traverse(o=>{
+        if (o.isMesh && o.material && o.material.vertexColors){
+          o.material.vertexColors = false;
+          o.material.needsUpdate = true;
+        }
+      });
+    });
+    this.onSceneUpdate?.();
   }
 
   /* ---------- Lighting Profiles ---------- */
@@ -227,51 +251,59 @@ export class SceneManager {
 
   _applyLightingProfile(profile) {
     this._clearLights();
-
     if (profile === 'aero-simple') {
-      // Sehr einfache, helle Beleuchtung: Ambient + Directional Key + Fill
       const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+      ambient.userData.role = 'ambient';
       const key = new THREE.DirectionalLight(0xffffff, 1.6);
       key.position.set(4, 6, 4);
+      key.userData.role = 'key';
       const fill = new THREE.DirectionalLight(0xffffff, 0.7);
       fill.position.set(-5, 3, -2);
+      fill.userData.role = 'fill';
       [ambient, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(ambient, key, fill);
-      this.scene.environment = null; // keine Reflexionen
+      this.scene.environment = null;
       this.renderer.toneMappingExposure = 1.6;
     } else if (profile === 'viewer-neutral-env') {
-      // Neutrale Environment (RoomEnvironment) für PBR
       const pmrem = new PMREMGenerator(this.renderer);
       const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
       this.scene.environment = env.texture;
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.8);
-      const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.9);
+      hemi.userData.role = 'hemi';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+      ambient.userData.role = 'ambient';
       this.scene.add(hemi, ambient);
       this._lights.push(hemi, ambient);
-      this.renderer.toneMappingExposure = 1.35;
+      this.renderer.toneMappingExposure = 1.4;
     } else if (profile === 'bright') {
       const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+      ambient.userData.role = 'ambient';
       const key = new THREE.DirectionalLight(0xffffff, 2.0);
       key.position.set(6, 9, 4);
+      key.userData.role = 'key';
       const fill = new THREE.DirectionalLight(0xeaf1ff, 1.2);
       fill.position.set(-6, 5, -4);
+      fill.userData.role = 'fill';
       this.scene.add(ambient, key, fill);
       this._lights.push(ambient, key, fill);
       this.scene.environment = null;
       this.renderer.toneMappingExposure = 1.7;
     } else if (profile === 'studio') {
       const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05);
+      hemi.userData.role = 'hemi';
       const key = new THREE.DirectionalLight(0xffffff, 1.55);
       key.position.set(5, 7, 4);
+      key.userData.role = 'key';
       const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85);
       fill.position.set(-6, 4, -3);
+      fill.userData.role = 'fill';
       const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+      ambient.userData.role = 'ambient';
       this.scene.add(hemi, key, fill, ambient);
       this._lights.push(hemi, key, fill, ambient);
       this.scene.environment = null;
       this.renderer.toneMappingExposure = 1.5;
     }
-
     this.currentLightProfile = profile;
   }
 
@@ -282,7 +314,7 @@ export class SceneManager {
     return next;
   }
 
-  /* ---------- Utility ---------- */
+  /* ---------- Utility / Resize ---------- */
   _handleResize() {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
@@ -334,15 +366,12 @@ export class SceneManager {
       gltf => {
         const root = gltf.scene;
         root.traverse(o => { o.userData.isEditable = true; });
-
-        // Minimale Helligkeitsgarantie für pechschwarze Materialien
         root.traverse(o => {
           if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x000000) {
             o.material.color.setHex(0x2a313a);
             o.material.needsUpdate = true;
           }
         });
-
         if (gltf.animations?.length) {
           this.modelAnimationMap.set(root, { clips: gltf.animations });
           const mixer = new THREE.AnimationMixer(root);
@@ -423,11 +452,7 @@ export class SceneManager {
   togglePivotEdit() {
     if (this.selectedObjects.length < 2) return false;
     this.pivotEditMode = !this.pivotEditMode;
-    if (this.pivotEditMode) {
-      this.transformControls.attach(this._pivot);
-    } else {
-      this.transformControls.attach(this._pivot);
-    }
+    this.transformControls.attach(this._pivot);
     return this.pivotEditMode;
   }
 
@@ -484,7 +509,6 @@ export class SceneManager {
     this.controls.update();
   }
 
-  /* ---------- Actions ---------- */
   duplicateSelected() {
     if (this.selectedObjects.length === 0) return [];
     const newObjects = this.selectedObjects.map(src => {
@@ -574,7 +598,6 @@ export class SceneManager {
     }
   }
 
-  /* ---------- Undo / Redo ---------- */
   undo() {
     if (this.undoStack.length === 0) return;
     const cmd = this.undoStack.pop();
@@ -656,7 +679,6 @@ export class SceneManager {
     this.onSelectionChange?.();
   }
 
-  /* ---------- SceneConfig ---------- */
   _fireSceneUpdate() { this.onSceneUpdate?.(); }
 
   getSceneConfig() {
