@@ -9,9 +9,9 @@ function init() {
   const mgr = new SceneManager(canvas);
   window.sceneManager = mgr;
 
-  // Standardmäßig etwas heller starten
+  // Standardmäßig etwas heller und leicht bläulich (Key kräftig)
   mgr.setExposure(2.2);
-  mgr.setLightIntensities({ key: 2.5 });
+  mgr.setLightIntensities({ key: 2.5, ambient: 0.6, fill: 1.2 });
 }
 
 window.addEventListener('DOMContentLoaded', init);
