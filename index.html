@@ -10,7 +10,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E🅰️%3C/text%3E%3C/svg%3E">
 
   <link rel="stylesheet" href="styles.css">
- 
+
   <!-- three.js Import Map -->
   <script type="importmap">
     {
@@ -93,6 +93,36 @@
         </div>
 
         <p id="prop-empty" class="empty-state">Wähle ein Objekt aus.</p>
+      </section>
+
+      <!-- NEU: Meta-/Poster-Panel -->
+      <section id="meta-panel">
+        <h2>Szene / Poster</h2>
+
+        <div class="prop-group">
+          <label for="inp-meta-title">Titel</label>
+          <input type="text" id="inp-meta-title" placeholder="z.B. Mein AR-Modell">
+        </div>
+
+        <div class="prop-group">
+          <label for="inp-meta-subtitle">Subline</label>
+          <input type="text" id="inp-meta-subtitle" placeholder="kurze Zusatzzeile">
+        </div>
+
+        <div class="prop-group">
+          <label for="inp-meta-body">Beschreibung</label>
+          <textarea id="inp-meta-body" rows="3" placeholder="Kurzbeschreibung für das Willkommensposter…"></textarea>
+        </div>
+
+        <div class="prop-group">
+          <label for="sel-poster-image">Posterbild (optional)</label>
+          <select id="sel-poster-image">
+            <option value="">— kein Posterbild —</option>
+          </select>
+          <p class="hint" style="margin-top:4px;font-size:11px;">
+            Wähle ein Bild aus den Assets. Dieses wird im Viewer als Willkommensposter angezeigt.
+          </p>
+        </div>
       </section>
 
       <section id="audio-panel">
