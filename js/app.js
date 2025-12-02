@@ -276,7 +276,7 @@ import { PublishClient } from './PublishClient.js';
       btn.disabled = true;
       showText('Bereite Upload vor…');
 
-      try {
+            try {
         const sceneConfig = mgr.getSceneConfig();
         if (!sceneConfig?.model?.url) {
           console.warn('getSceneConfig(): model.url fehlt – bitte prüfen.');
@@ -287,11 +287,32 @@ import { PublishClient } from './PublishClient.js';
           .replace(/[^a-z0-9]+/g,'-')
           .replace(/^-+|-+$/g,'') || 'scene';
         const sceneId = `${title}-${Date.now()}`;
-        const assets = Array.from(assetFiles.values());
+
+        // Alle im Asset-Panel hinterlegten Dateien (Originale)
+        let assets = Array.from(assetFiles.values());
+
+        // 🔹 WICHTIG: gemergtes GLB mit Animationen exportieren und als scene.glb anhängen
+        try {
+          const mergedBlob = await mgr.exportMergedGlbBlob();
+          if (mergedBlob) {
+            const mergedFile = new File(
+              [mergedBlob],
+              'scene.glb',
+              { type: 'model/gltf-binary' }
+            );
+            // scene.glb als erstes Asset, damit der Worker daraus sein Alias baut
+            assets = [mergedFile, ...assets];
+          } else {
+            console.warn('exportMergedGlbBlob() lieferte kein Ergebnis – es wird nur das Original-GLB hochgeladen.');
+          }
+        } catch (ex) {
+          console.warn('exportMergedGlbBlob() fehlgeschlagen – es wird nur das Original-GLB hochgeladen.', ex);
+        }
 
         const client = new PublishClient(publishUrl, viewerBase, workerOrigin);
         showText('Lade Szene hoch…');
         const res = await client.publish(sceneId, sceneConfig, assets);
+
 
         const link = document.createElement('a');
         link.href = res.viewerUrl;
