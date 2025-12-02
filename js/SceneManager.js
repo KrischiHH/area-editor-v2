@@ -1,9 +1,8 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
@@ -30,7 +29,7 @@ export class SceneManager {
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-       this.controls.dampingFactor = 0.08;
+    this.controls.dampingFactor = 0.08;
     this.controls.screenSpacePanning = true;
     this.controls.mouseButtons = {
       LEFT: THREE.MOUSE.ROTATE,
@@ -97,7 +96,7 @@ export class SceneManager {
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;               // nur Linksklick
+      if (e.button !== 0) return;                // nur Linksklick
       if (this.transformControls?.dragging) return; // während Drag keine Selektion
 
       const rect = this.renderer.domElement.getBoundingClientRect();
@@ -105,16 +104,22 @@ export class SceneManager {
       this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
       this.raycaster.setFromCamera(this.pointer, this.camera);
+      // intersectObjects rekursiv prüfen
       const hits = this.raycaster.intersectObjects(this.editableObjects, true);
 
       if (hits.length > 0) {
         const additive = e.shiftKey || e.ctrlKey || e.metaKey;
         let node = hits[0].object;
+        // Finde das Root-Objekt in editableObjects (da wir oft tiefere Meshes treffen)
         let root = node;
+        // Solange das Objekt nicht in unserer Liste ist und noch Eltern hat, nach oben wandern
         while (root && !this.editableObjects.includes(root)) {
           root = root.parent;
         }
-        if (root) this.selectObject(root, additive);
+        // Wenn wir ein Root-Objekt gefunden haben, das bearbeitbar ist
+        if (root && this.editableObjects.includes(root)) {
+           this.selectObject(root, additive);
+        }
       } else {
         // keine Treffer → Selektion leeren (außer bei additive)
         if (!(e.shiftKey || e.ctrlKey || e.metaKey)) this.clearSelection();
@@ -154,6 +159,7 @@ export class SceneManager {
     this._pivotStartState = null;
 
     this.loader = new GLTFLoader();
+    // Draco Loader ist optional, aber gut zu haben
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
     this.loader.setDRACOLoader(dracoLoader);
@@ -245,7 +251,7 @@ export class SceneManager {
         if (o.isMesh && o.material && o.material.color){
           const c = o.material.color;
           const lum = (c.r + c.g + c.b)/3;
-          const target = lum + faktor;
+            const target = lum + faktor;
           const scale = target / (lum || 0.001);
           c.multiplyScalar(scale);
           o.material.needsUpdate = true;
@@ -275,16 +281,13 @@ export class SceneManager {
   _applyLightingProfile(profile) {
     this._clearLights();
     if (profile === 'aero-simple') {
-      // Deutlich hellere "simple" Beleuchtung inkl. Environment
-      this.enableEnvironment(true);
-
-      const ambient = new THREE.AmbientLight(0xffffff, 0.6); ambient.userData.role='ambient';
-      const key = new THREE.DirectionalLight(0xffffff, 2.5); key.position.set(3.5, 7, 4.5); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xffffff, 1.2); fill.position.set(-4, 4.5, -3); fill.userData.role='fill';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.8); ambient.userData.role='ambient';
+      const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(4,6,4); key.userData.role='key';
+      const fill = new THREE.DirectionalLight(0xffffff, 0.7); fill.position.set(-5,3,-2); fill.userData.role='fill';
       [ambient, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(ambient, key, fill);
-
-      this.renderer.toneMappingExposure = 2.0;
+      this.scene.environment = null;
+      this.renderer.toneMappingExposure = 1.6;
     } else if (profile === 'viewer-neutral-env') {
       const pmrem = new PMREMGenerator(this.renderer);
       const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
@@ -293,7 +296,7 @@ export class SceneManager {
       const ambient = new THREE.AmbientLight(0xffffff, 0.45); ambient.userData.role='ambient';
       this.scene.add(hemi, ambient);
       this._lights.push(hemi, ambient);
-      this.renderer.toneMappingExposure = 1.6;
+      this.renderer.toneMappingExposure = 1.4;
     } else if (profile === 'bright') {
       const ambient = new THREE.AmbientLight(0xffffff, 1.0); ambient.userData.role='ambient';
       const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(6,9,4); key.userData.role='key';
@@ -369,7 +372,7 @@ export class SceneManager {
   loadModel(url, nameHint) {
     this.loader.load(
       url,
-      gltf => {
+      (gltf) => {
         const root = gltf.scene;
         root.traverse(o => { o.userData.isEditable = true; });
         root.traverse(o => {
@@ -385,6 +388,7 @@ export class SceneManager {
           this._mixers.push(mixer);
         }
         root.name = nameHint || 'Modell';
+        // NEU: Dateiname für getSceneConfig() merken
         this.currentModelFileName = nameHint || this.currentModelFileName || 'scene.glb';
 
         this.scene.add(root);
@@ -394,7 +398,7 @@ export class SceneManager {
         this._fireSceneUpdate();
       },
       undefined,
-      err => console.error('Modell laden fehlgeschlagen:', err)
+      (err) => console.error('Modell laden fehlgeschlagen:', err)
     );
   }
 
