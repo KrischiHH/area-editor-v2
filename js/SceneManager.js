@@ -1,14 +1,14 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import { PMREMGenerator } from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'; // Hinzugefügt, da es unten verwendet wird
 
 export class SceneManager {
   constructor(canvas) {
@@ -65,9 +65,9 @@ export class SceneManager {
       } else {
         if (this.pivotEditMode) {
           const end = this._captureTransform(this._pivot);
-            if (!this._compareTransform(this._pivotDragStart, end)) {
-              this._pushCommand({ type: 'groupPivotChange', prev: this._pivotDragStart, next: end });
-            }
+          if (!this._compareTransform(this._pivotDragStart, end)) {
+            this._pushCommand({ type: 'groupPivotChange', prev: this._pivotDragStart, next: end });
+          }
           this._pivotDragStart = null;
         } else if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
           const mode = this.transformControls.getMode();
@@ -76,7 +76,7 @@ export class SceneManager {
             prev: this._groupTransformStartStates.find(s => s.object === o)?.prev,
             next: this._captureTransform(o)
           }));
-          const changed = items.some(i => !this._compareTransform(i.prev, i.next));
+            const changed = items.some(i => !this._compareTransform(i.prev, i.next));
           if (changed) {
             this._pushCommand({ type: 'groupTransform', mode, items });
             this.onTransformChange?.();
@@ -93,36 +93,25 @@ export class SceneManager {
     });
     this.scene.add(this.transformControls);
 
-    // Raycaster für Selektion per Linksklick
+    // Raycaster für Klick-Selektion (bereits eingebaut in vorherigem Patch)
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;                // nur Linksklick
-      if (this.transformControls?.dragging) return; // während Drag keine Selektion
-
+      if (e.button !== 0) return;
+      if (this.transformControls?.dragging) return;
       const rect = this.renderer.domElement.getBoundingClientRect();
       this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
       this.raycaster.setFromCamera(this.pointer, this.camera);
-      // intersectObjects rekursiv prüfen
       const hits = this.raycaster.intersectObjects(this.editableObjects, true);
-
       if (hits.length > 0) {
         const additive = e.shiftKey || e.ctrlKey || e.metaKey;
-        let node = hits[0].object;
-        // Finde das Root-Objekt in editableObjects (da wir oft tiefere Meshes treffen)
-        let root = node;
-        // Solange das Objekt nicht in unserer Liste ist und noch Eltern hat, nach oben wandern
+        let root = hits[0].object;
         while (root && !this.editableObjects.includes(root)) {
           root = root.parent;
         }
-        // Wenn wir ein Root-Objekt gefunden haben, das bearbeitbar ist
-        if (root && this.editableObjects.includes(root)) {
-           this.selectObject(root, additive);
-        }
+        if (root) this.selectObject(root, additive);
       } else {
-        // keine Treffer → Selektion leeren (außer bei additive)
         if (!(e.shiftKey || e.ctrlKey || e.metaKey)) this.clearSelection();
       }
     });
@@ -143,13 +132,9 @@ export class SceneManager {
     this.editableObjects = [];
     this.selectedObjects = [];
     this.audioConfig = null;
-    
-    // START Animation-relevante Variablen
     this.modelAnimationMap = new Map();
     this._mixers = [];
     this._clock = new THREE.Clock();
-    // END Animation-relevante Variablen
-
     this._outlineEnabled = true;
 
     this._pivot = new THREE.Object3D();
@@ -164,7 +149,6 @@ export class SceneManager {
     this._pivotStartState = null;
 
     this.loader = new GLTFLoader();
-    // Draco Loader ist optional, aber gut zu haben
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
     this.loader.setDRACOLoader(dracoLoader);
@@ -188,12 +172,10 @@ export class SceneManager {
 
     this._basicPreview = false;
 
-    // START Animation/Render-Schleife
     const animate = () => {
       requestAnimationFrame(animate);
       const delta = this._clock.getDelta();
-      // Animation-Update ist hier essentiell
-      this._mixers.forEach(m => m.update(delta)); 
+      this._mixers.forEach(m => m.update(delta));
       this.controls.update();
       if (this._outlineEnabled) {
         this.composer.render();
@@ -202,12 +184,10 @@ export class SceneManager {
       }
     };
     animate();
-    // END Animation/Render-Schleife
 
     window.addEventListener('resize', () => this._handleResize());
   }
 
-  /* ---------- Helper / New Methods ---------- */
   setExposure(v){
     this.renderer.toneMappingExposure = Math.max(0.1, Math.min(5, v));
   }
@@ -259,7 +239,7 @@ export class SceneManager {
         if (o.isMesh && o.material && o.material.color){
           const c = o.material.color;
           const lum = (c.r + c.g + c.b)/3;
-            const target = lum + faktor;
+          const target = lum + faktor;
           const scale = target / (lum || 0.001);
           c.multiplyScalar(scale);
           o.material.needsUpdate = true;
@@ -380,28 +360,22 @@ export class SceneManager {
   loadModel(url, nameHint) {
     this.loader.load(
       url,
-      (gltf) => {
+      gltf => {
         const root = gltf.scene;
         root.traverse(o => { o.userData.isEditable = true; });
         root.traverse(o => {
-          // Schwarze Materialien anpassen
           if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x000000) {
             o.material.color.setHex(0x2a313a);
             o.material.needsUpdate = true;
           }
         });
-        
-        // START Animation-Handling
         if (gltf.animations?.length) {
           this.modelAnimationMap.set(root, { clips: gltf.animations });
           const mixer = new THREE.AnimationMixer(root);
-          gltf.animations.forEach(c => mixer.clipAction(c).play()); // Alle Clips sofort abspielen
+          gltf.animations.forEach(c => mixer.clipAction(c).play());
           this._mixers.push(mixer);
         }
-        // END Animation-Handling
-
         root.name = nameHint || 'Modell';
-        // NEU: Dateiname für getSceneConfig() merken
         this.currentModelFileName = nameHint || this.currentModelFileName || 'scene.glb';
 
         this.scene.add(root);
@@ -411,7 +385,7 @@ export class SceneManager {
         this._fireSceneUpdate();
       },
       undefined,
-      (err) => console.error('Modell laden fehlgeschlagen:', err)
+      err => console.error('Modell laden fehlgeschlagen:', err)
     );
   }
 
@@ -554,10 +528,8 @@ export class SceneManager {
   deleteSelected() {
     if (this.selectedObjects.length === 0) return;
     const toDelete = [...this.selectedObjects];
-    // Mixer-Cleanup (Wichtig für Animationen!)
     this._mixers = this._mixers.filter(m => {
-      // Versuche, das Root-Objekt des Mixers zu finden (kann in älteren THREE-Versionen variieren)
-      const root = m.getRoot?.() || m._root || m._rootObject; 
+      const root = m.getRoot?.() || m._root || m._rootObject;
       if (root && toDelete.includes(root)) {
         try { m.stopAllAction?.(); } catch(_) {}
         return false;
@@ -737,7 +709,17 @@ export class SceneManager {
           embedElement: true
         }
       : undefined;
-    const modelEntry = { url: 'scene.glb' };
+    const modelEntry = { url: this.currentModelFileName || 'scene.glb' };
+
+    // NEU: Animationsliste aus erstem Modell mit Clips (optional)
+    let animations;
+    for (const [root, entry] of this.modelAnimationMap.entries()) {
+      if (entry?.clips?.length) {
+        animations = entry.clips.map(c => c.name || 'UnnamedClip');
+        break;
+      }
+    }
+
     return {
       meta: {
         title: 'ARea Scene V2',
@@ -747,7 +729,8 @@ export class SceneManager {
       model: modelEntry,
       audio,
       clickableNodes,
-      assets
+      assets,
+      animations // kann undefined sein, wenn keine Animationen vorhanden
     };
   }
 
@@ -757,8 +740,7 @@ export class SceneManager {
         const exportableAssets = this.editableObjects.filter(o => o.userData.isEditable);
         const tempScene = new THREE.Scene();
         exportableAssets.forEach(asset => tempScene.add(asset.clone()));
-        // Animationen zusammenführen
-        const animations = this.buildMergedAnimationClip(exportableAssets); 
+        const animations = this.buildMergedAnimationClip(exportableAssets);
         this.exporter.parse(
           tempScene,
           gltf => resolve(new Blob([gltf], { type: 'application/octet-stream' })),
@@ -782,7 +764,6 @@ export class SceneManager {
       if (!entry) return;
       entry.clips.forEach(c => {
         c.tracks.forEach(t => {
-          // Track-Kollision vermeiden: Präfix mit Objektname
           const cloned = t.clone();
           cloned.name = `${o.name || o.uuid}/${cloned.name}`;
           allTracks.push(cloned);
@@ -790,8 +771,7 @@ export class SceneManager {
       });
     });
     if (!allTracks.length) return [];
-    // Clip mit allen zusammengeführten Tracks erstellen
-    const merged = new THREE.AnimationClip('merged_animation', -1, allTracks); 
+    const merged = new THREE.AnimationClip('merged_animation', -1, allTracks);
     return [merged];
   }
 }
