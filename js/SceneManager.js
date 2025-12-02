@@ -15,8 +15,8 @@ export class SceneManager {
     this.canvas = canvas;
 
     this.scene = new THREE.Scene();
-    // Hintergrund etwas heller und neutral-bläulich statt sehr dunkel
-    this.scene.background = new THREE.Color(0x0f1724); // vorher 0x0d1117
+    // etwas helleres, bläuliches Studio-Hintergrundgrau
+    this.scene.background = new THREE.Color(0x0f1724);
 
     this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
     this.camera.position.set(0, 1.6, 6);
@@ -94,7 +94,29 @@ export class SceneManager {
     });
     this.scene.add(this.transformControls);
 
-    // Startprofil weiterhin 'aero-simple' – aber unten aufgehellt und ins Bläuliche angepasst
+    // Raycaster für Klick-Selektion
+    this.raycaster = new THREE.Raycaster();
+    this.pointer = new THREE.Vector2();
+    this.renderer.domElement.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      if (this.transformControls?.dragging) return;
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const hits = this.raycaster.intersectObjects(this.editableObjects, true);
+      if (hits.length > 0) {
+        const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+        let root = hits[0].object;
+        while (root && !this.editableObjects.includes(root)) {
+          root = root.parent;
+        }
+        if (root) this.selectObject(root, additive);
+      } else {
+        if (!(e.shiftKey || e.ctrlKey || e.metaKey)) this.clearSelection();
+      }
+    });
+
     this.currentLightProfile = 'aero-simple';
     this._lights = [];
     this._applyLightingProfile(this.currentLightProfile);
@@ -111,6 +133,7 @@ export class SceneManager {
     this.editableObjects = [];
     this.selectedObjects = [];
     this.audioConfig = null;
+    this.metaConfig = {};      // für Titel/Subline/Text/Poster
     this.modelAnimationMap = new Map();
     this._mixers = [];
     this._clock = new THREE.Clock();
@@ -167,11 +190,11 @@ export class SceneManager {
     window.addEventListener('resize', () => this._handleResize());
   }
 
-  setExposure(v){
+  setExposure(v) {
     this.renderer.toneMappingExposure = Math.max(0.1, Math.min(5, v));
   }
 
-  setLightIntensities({ ambient, key, fill }){
+  setLightIntensities({ ambient, key, fill }) {
     if (!this._lights || this._lights.length === 0) return;
     this._lights.forEach(l => {
       if (l.isAmbientLight && ambient !== undefined) l.intensity = ambient;
@@ -182,8 +205,8 @@ export class SceneManager {
     });
   }
 
-  enableEnvironment(flag){
-    if (flag){
+  enableEnvironment(flag) {
+    if (flag) {
       const pmrem = new PMREMGenerator(this.renderer);
       const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
       this.scene.environment = env.texture;
@@ -192,15 +215,18 @@ export class SceneManager {
     }
   }
 
-  previewBasicMode(flag){
+  previewBasicMode(flag) {
     if (flag === this._basicPreview) return;
     this._basicPreview = flag;
     this.editableObjects.forEach(root => {
       root.traverse(o => {
         if (o.isMesh) {
-          if (flag){
+          if (flag) {
             if (!o.userData._origMaterial) o.userData._origMaterial = o.material;
-            o.material = new THREE.MeshBasicMaterial({ map: o.userData._origMaterial.map, color: o.userData._origMaterial.color });
+            o.material = new THREE.MeshBasicMaterial({
+              map: o.userData._origMaterial.map,
+              color: o.userData._origMaterial.color
+            });
           } else {
             if (o.userData._origMaterial) {
               o.material = o.userData._origMaterial;
@@ -212,12 +238,12 @@ export class SceneManager {
     });
   }
 
-  autoBrightenSelected(faktor=0.3){
+  autoBrightenSelected(faktor = 0.3) {
     this.selectedObjects.forEach(obj => {
-      obj.traverse(o=>{
-        if (o.isMesh && o.material && o.material.color){
+      obj.traverse(o => {
+        if (o.isMesh && o.material && o.material.color) {
           const c = o.material.color;
-          const lum = (c.r + c.g + c.b)/3;
+          const lum = (c.r + c.g + c.b) / 3;
           const target = lum + faktor;
           const scale = target / (lum || 0.001);
           c.multiplyScalar(scale);
@@ -228,10 +254,10 @@ export class SceneManager {
     this.onSceneUpdate?.();
   }
 
-  disableVertexColorsInSelected(){
-    this.selectedObjects.forEach(obj=>{
-      obj.traverse(o=>{
-        if (o.isMesh && o.material && o.material.vertexColors){
+  disableVertexColorsInSelected() {
+    this.selectedObjects.forEach(obj => {
+      obj.traverse(o => {
+        if (o.isMesh && o.material && o.material.vertexColors) {
           o.material.vertexColors = false;
           o.material.needsUpdate = true;
         }
@@ -248,11 +274,10 @@ export class SceneManager {
   _applyLightingProfile(profile) {
     this._clearLights();
     if (profile === 'aero-simple') {
-      // Neu: deutlich hellere, leicht bläuliche Beleuchtung mit Environment
       this.enableEnvironment(true);
-      const ambient = new THREE.AmbientLight(0xeaf3ff, 0.55); ambient.userData.role='ambient';
-      const key = new THREE.DirectionalLight(0xe6f0ff, 2.4); key.position.set(3.5, 7, 4.5); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xcfe0ff, 1.2); fill.position.set(-4, 4.5, -3); fill.userData.role='fill';
+      const ambient = new THREE.AmbientLight(0xeaf3ff, 0.55); ambient.userData.role = 'ambient';
+      const key     = new THREE.DirectionalLight(0xe6f0ff, 2.4); key.position.set(3.5, 7, 4.5); key.userData.role = 'key';
+      const fill    = new THREE.DirectionalLight(0xcfe0ff, 1.2); fill.position.set(-4, 4.5, -3); fill.userData.role = 'fill';
       [ambient, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(ambient, key, fill);
       this.renderer.toneMappingExposure = 2.0;
@@ -260,34 +285,33 @@ export class SceneManager {
       const pmrem = new PMREMGenerator(this.renderer);
       const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
       this.scene.environment = env.texture;
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.9); hemi.userData.role='hemi';
-      const ambient = new THREE.AmbientLight(0xffffff, 0.45); ambient.userData.role='ambient';
+      const hemi    = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.9); hemi.userData.role = 'hemi';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.45); ambient.userData.role = 'ambient';
       this.scene.add(hemi, ambient);
       this._lights.push(hemi, ambient);
       this.renderer.toneMappingExposure = 1.6;
     } else if (profile === 'bright') {
-      const ambient = new THREE.AmbientLight(0xffffff, 1.0); ambient.userData.role='ambient';
-      const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(6,9,4); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.2); fill.position.set(-6,5,-4); fill.userData.role='fill';
+      this.enableEnvironment(false);
+      const ambient = new THREE.AmbientLight(0xffffff, 1.0); ambient.userData.role = 'ambient';
+      const key     = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(6, 9, 4); key.userData.role = 'key';
+      const fill    = new THREE.DirectionalLight(0xeaf1ff, 1.2); fill.position.set(-6, 5, -4); fill.userData.role = 'fill';
       this.scene.add(ambient, key, fill);
       this._lights.push(ambient, key, fill);
-      this.scene.environment = null;
       this.renderer.toneMappingExposure = 1.7;
     } else if (profile === 'studio') {
-      const hemi = new THREE.HemisphereLight(0xeaf3ff, 0x24303a, 1.05); hemi.userData.role='hemi';
-      const key = new THREE.DirectionalLight(0xe6f0ff, 1.85); key.position.set(5,7,4); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xcfe0ff, 1.0); fill.position.set(-6,4,-3); fill.userData.role='fill';
-      const ambient = new THREE.AmbientLight(0xeaf3ff, 0.6); ambient.userData.role='ambient';
+      this.enableEnvironment(false);
+      const hemi    = new THREE.HemisphereLight(0xeaf3ff, 0x24303a, 1.05); hemi.userData.role = 'hemi';
+      const key     = new THREE.DirectionalLight(0xe6f0ff, 1.85); key.position.set(5, 7, 4); key.userData.role = 'key';
+      const fill    = new THREE.DirectionalLight(0xcfe0ff, 1.0); fill.position.set(-6, 4, -3); fill.userData.role = 'fill';
+      const ambient = new THREE.AmbientLight(0xeaf3ff, 0.6); ambient.userData.role = 'ambient';
       this.scene.add(hemi, key, fill, ambient);
       this._lights.push(hemi, key, fill, ambient);
-      this.scene.environment = null;
       this.renderer.toneMappingExposure = 1.9;
     } else if (profile === 'aero-blue-studio') {
-      // Optional zusätzliches Profil, falls du umschalten möchtest
       this.enableEnvironment(true);
-      const ambient = new THREE.AmbientLight(0xeaf3ff, 0.6); ambient.userData.role='ambient';
-      const key = new THREE.DirectionalLight(0xdfeaff, 2.6); key.position.set(4.5, 8, 5); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xcfe0ff, 1.3); fill.position.set(-5, 5, -3.5); fill.userData.role='fill';
+      const ambient = new THREE.AmbientLight(0xeaf3ff, 0.6); ambient.userData.role = 'ambient';
+      const key     = new THREE.DirectionalLight(0xdfeaff, 2.6); key.position.set(4.5, 8, 5); key.userData.role = 'key';
+      const fill    = new THREE.DirectionalLight(0xcfe0ff, 1.3); fill.position.set(-5, 5, -3.5); fill.userData.role = 'fill';
       this.scene.add(ambient, key, fill);
       this._lights.push(ambient, key, fill);
       this.renderer.toneMappingExposure = 2.1;
@@ -311,7 +335,13 @@ export class SceneManager {
     this.composer.setSize(w, h);
   }
 
-  setAudioConfig(cfg) { this.audioConfig = cfg; }
+  setAudioConfig(cfg) {
+    this.audioConfig = cfg;
+  }
+
+  setMetaConfig(cfg) {
+    this.metaConfig = { ...cfg };
+  }
 
   _captureTransform(obj) {
     if (!obj) return null;
@@ -353,7 +383,7 @@ export class SceneManager {
         const root = gltf.scene;
         root.traverse(o => { o.userData.isEditable = true; });
         root.traverse(o => {
-          // absolute schwarze Vertexfarben etwas anheben, damit PBR nicht "absäuft"
+          // komplett schwarze Materialien leicht anheben
           if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x000000) {
             o.material.color.setHex(0x2a313a);
             o.material.needsUpdate = true;
@@ -379,7 +409,404 @@ export class SceneManager {
     );
   }
 
-  // ... (Rest unverändert)
+  selectObject(obj, additive = false) {
+    if (!obj || !this.editableObjects.includes(obj)) {
+      if (!additive) this.clearSelection();
+      return;
+    }
+    if (additive) {
+      if (this.selectedObjects.includes(obj)) {
+        this.selectedObjects = this.selectedObjects.filter(o => o !== obj);
+      } else {
+        this.selectedObjects.push(obj);
+      }
+    } else {
+      this.selectedObjects = [obj];
+    }
+    this._updateSelectionVisuals();
+  }
+
+  clearSelection() {
+    this.selectedObjects = [];
+    this._updateSelectionVisuals();
+  }
+
+  selectAll() {
+    this.selectedObjects = [...this.editableObjects];
+    this._updateSelectionVisuals();
+  }
+
+  _updateSelectionVisuals() {
+    this.outlinePass.selectedObjects = [...this.selectedObjects];
+    if (this.selectedObjects.length === 0) {
+      this.transformControls.detach();
+      this.axesHelper.visible = false;
+      if (this.pivotEditMode) this.pivotEditMode = false;
+    } else if (this.selectedObjects.length === 1) {
+      const only = this.selectedObjects[0];
+      if (!this.pivotEditMode) this.transformControls.attach(only);
+      this.axesHelper.visible = true;
+      this.axesHelper.position.copy(only.position);
+      this.controls.target.copy(only.position);
+    } else {
+      const center = new THREE.Vector3();
+      this.selectedObjects.forEach(o => center.add(o.position));
+      center.multiplyScalar(1 / this.selectedObjects.length);
+      if (!this.pivotEditMode && this._pivotDragStart == null) {
+        this._pivot.position.copy(center);
+      }
+      if (!this.pivotEditMode) {
+        this.transformControls.attach(this._pivot);
+      }
+      this.axesHelper.visible = true;
+      this.axesHelper.position.copy(this._pivot.position);
+      this.controls.target.copy(this._pivot.position);
+    }
+    this.controls.update();
+    this.onSelectionChange?.();
+    this._fireSceneUpdate();
+  }
+
+  togglePivotEdit() {
+    if (this.selectedObjects.length < 2) return false;
+    this.pivotEditMode = !this.pivotEditMode;
+    this.transformControls.attach(this._pivot);
+    return this.pivotEditMode;
+  }
+
+  _applyPivotLiveTransform() {
+    if (!this._pivotStartState || !this._pivot || this.selectedObjects.length < 2 || this.pivotEditMode) return;
+    const mode = this.transformControls.getMode();
+    const pivotPrev = this._pivotStartState.position;
+    const pivotCurrent = this._pivot.position.clone();
+    const deltaPos = pivotCurrent.clone().sub(pivotPrev);
+
+    if (mode === 'translate') {
+      this.selectedObjects.forEach(o => o.position.add(deltaPos));
+    } else if (mode === 'rotate') {
+      const qPrev = new THREE.Quaternion().setFromEuler(this._pivotStartState.rotation);
+      const qCurr = new THREE.Quaternion().setFromEuler(this._pivot.rotation);
+      const qDelta = qPrev.clone().invert().multiply(qCurr);
+      this.selectedObjects.forEach(o => {
+        const offset = o.position.clone().sub(pivotPrev);
+        offset.applyQuaternion(qDelta);
+        o.position.copy(pivotPrev.clone().add(offset));
+        o.quaternion.multiply(qDelta);
+      });
+    } else if (mode === 'scale') {
+      const prevScale = this._pivotStartState.scale;
+      const currScale = this._pivot.scale;
+      const sx = currScale.x / (prevScale.x || 1);
+      this.selectedObjects.forEach(o => {
+        const offset = o.position.clone().sub(pivotPrev).multiplyScalar(sx);
+        o.position.copy(pivotPrev.clone().add(offset));
+        o.scale.multiplyScalar(sx);
+      });
+    }
+    this.axesHelper.position.copy(this._pivot.position);
+  }
+
+  cycleGizmoMode() {
+    const mode = this.transformControls.getMode();
+    const order = ['translate', 'rotate', 'scale'];
+    const next = order[(order.indexOf(mode) + 1) % order.length];
+    this.transformControls.setMode(next);
+    return next;
+  }
+
+  focusSelected() {
+    if (this.selectedObjects.length === 0) return;
+    this.focusObject(this.selectedObjects[0]);
+  }
+
+  focusObject(obj) {
+    if (!obj) return;
+    const offset = new THREE.Vector3(0, 0.5, 4);
+    this.camera.position.copy(obj.position).add(offset);
+    this.controls.target.copy(obj.position);
+    this.controls.update();
+  }
+
+  duplicateSelected() {
+    if (this.selectedObjects.length === 0) return [];
+    const newObjects = this.selectedObjects.map(src => {
+      const clone = src.clone(true);
+      clone.name = src.name + '_Copy';
+      clone.position.x += 0.5;
+      clone.position.z += 0.5;
+      clone.traverse(o => { o.userData.isEditable = true; });
+      this.scene.add(clone);
+      this.editableObjects.push(clone);
+      return clone;
+    });
+    this._pushCommand({ type: 'groupAdd', objects: newObjects });
+    this.selectedObjects = newObjects;
+    this._updateSelectionVisuals();
+    return newObjects;
+  }
+
+  deleteSelected() {
+    if (this.selectedObjects.length === 0) return;
+    const toDelete = [...this.selectedObjects];
+    this._mixers = this._mixers.filter(m => {
+      const root = m.getRoot?.() || m._root || m._rootObject;
+      if (root && toDelete.includes(root)) {
+        try { m.stopAllAction?.(); } catch (_) {}
+        return false;
+      }
+      return true;
+    });
+    toDelete.forEach(obj => {
+      const idx = this.editableObjects.indexOf(obj);
+      if (idx >= 0) this.editableObjects.splice(idx, 1);
+      this.scene.remove(obj);
+    });
+    this._pushCommand({
+      type: 'groupDelete',
+      objects: toDelete,
+      prevStates: toDelete.map(o => this._captureTransform(o))
+    });
+    this.selectedObjects = [];
+    this._updateSelectionVisuals();
+  }
+
+  snapToGround() {
+    if (this.selectedObjects.length === 0) return;
+    const beforeStates = this.selectedObjects.map(o => this._captureTransform(o));
+    this.selectedObjects.forEach(o => {
+      const box = new THREE.Box3().setFromObject(o);
+      const minY = box.min.y;
+      if (Number.isFinite(minY)) o.position.y -= minY;
+    });
+    const afterStates = this.selectedObjects.map(o => this._captureTransform(o));
+    const changed = afterStates.some((aft, i) => !this._compareTransform(beforeStates[i], aft));
+    if (changed) {
+      this._pushCommand({
+        type: 'groupTransform',
+        mode: 'snap',
+        items: this.selectedObjects.map((o, i) => ({
+          object: o,
+          prev: beforeStates[i],
+          next: afterStates[i]
+        }))
+      });
+      this.onTransformChange?.();
+      this._fireSceneUpdate();
+    }
+  }
+
+  toggleOutline() {
+    this._outlineEnabled = !this._outlineEnabled;
+    return this._outlineEnabled;
+  }
+
+  updateSelectedTransform(pos, rotDeg, scale) {
+    if (this.selectedObjects.length !== 1) return;
+    const obj = this.selectedObjects[0];
+    const before = this._captureTransform(obj);
+    if (pos) {
+      if (Number.isFinite(pos.x)) obj.position.x = pos.x;
+      if (Number.isFinite(pos.y)) obj.position.y = pos.y;
+      if (Number.isFinite(pos.z)) obj.position.z = pos.z;
+    }
+    if (rotDeg) {
+      const toRad = THREE.MathUtils.degToRad;
+      if (Number.isFinite(rotDeg.x)) obj.rotation.x = toRad(rotDeg.x);
+      if (Number.isFinite(rotDeg.y)) obj.rotation.y = toRad(rotDeg.y);
+      if (Number.isFinite(rotDeg.z)) obj.rotation.z = toRad(rotDeg.z);
+    }
+    if (Number.isFinite(scale) && scale > 0) obj.scale.set(scale, scale, scale);
+    const after = this._captureTransform(obj);
+    if (!this._compareTransform(before, after)) {
+      this._pushCommand({ type: 'transform', object: obj, prev: before, next: after });
+      this.onTransformChange?.();
+      this._fireSceneUpdate();
+    }
+  }
+
+  undo() {
+    if (this.undoStack.length === 0) return;
+    const cmd = this.undoStack.pop();
+    this.redoStack.push(cmd);
+    switch (cmd.type) {
+      case 'groupAdd':
+        cmd.objects.forEach(o => {
+          const idx = this.editableObjects.indexOf(o);
+          if (idx >= 0) this.editableObjects.splice(idx, 1);
+          this.scene.remove(o);
+        });
+        this.selectedObjects = this.selectedObjects.filter(o => !cmd.objects.includes(o));
+        this._updateSelectionVisuals();
+        break;
+      case 'groupDelete':
+        cmd.objects.forEach((o, i) => {
+          this.scene.add(o);
+          if (!this.editableObjects.includes(o)) this.editableObjects.push(o);
+          this._applyTransform(o, cmd.prevStates[i]);
+        });
+        this.selectedObjects = [...cmd.objects];
+        this._updateSelectionVisuals();
+        break;
+      case 'transform':
+        this._applyTransform(cmd.object, cmd.prev);
+        this._fireSceneUpdate();
+        break;
+      case 'groupTransform':
+        cmd.items.forEach(it => this._applyTransform(it.object, it.prev));
+        this._fireSceneUpdate();
+        break;
+      case 'groupPivotChange':
+        this._applyTransform(this._pivot, cmd.prev);
+        this._fireSceneUpdate();
+        break;
+      default:
+        console.warn('Unbekannter Undo-Typ:', cmd.type);
+    }
+    this.onSelectionChange?.();
+  }
+
+  redo() {
+    if (this.redoStack.length === 0) return;
+    const cmd = this.redoStack.pop();
+    this.undoStack.push(cmd);
+    switch (cmd.type) {
+      case 'groupAdd':
+        cmd.objects.forEach(o => {
+          this.scene.add(o);
+          if (!this.editableObjects.includes(o)) this.editableObjects.push(o);
+        });
+        this.selectedObjects = [...cmd.objects];
+        this._updateSelectionVisuals();
+        break;
+      case 'groupDelete':
+        cmd.objects.forEach(o => {
+          const idx = this.editableObjects.indexOf(o);
+          if (idx >= 0) this.editableObjects.splice(idx, 1);
+          this.scene.remove(o);
+        });
+        this.selectedObjects = this.selectedObjects.filter(o => !cmd.objects.includes(o));
+        this._updateSelectionVisuals();
+        break;
+      case 'transform':
+        this._applyTransform(cmd.object, cmd.next);
+        this._fireSceneUpdate();
+        break;
+      case 'groupTransform':
+        cmd.items.forEach(it => this._applyTransform(it.object, it.next));
+        this._fireSceneUpdate();
+        break;
+      case 'groupPivotChange':
+        this._applyTransform(this._pivot, cmd.next);
+        this._fireSceneUpdate();
+        break;
+      default:
+        console.warn('Unbekannter Redo-Typ:', cmd.type);
+    }
+    this.onSelectionChange?.();
+  }
+
+  _fireSceneUpdate() {
+    this.onSceneUpdate?.();
+  }
+
+  getSceneConfig() {
+    const assets = [];
+
+    const clickableNodes = this.editableObjects
+      .filter(o => !!o.userData.linkUrl)
+      .map(o => ({
+        url: o.userData.linkUrl.trim(),
+        label: o.name || o.uuid,
+        position: {
+          x: Number(o.position.x.toFixed(3)),
+          y: Number(o.position.y.toFixed(3)),
+          z: Number(o.position.z.toFixed(3))
+        }
+      }));
+
+    const audio = (this.audioConfig && this.audioConfig.url)
+      ? {
+          url: this.audioConfig.url,
+          loop: !!this.audioConfig.loop,
+          delaySeconds: this.audioConfig.delaySeconds || 0,
+          volume: Math.min(1, Math.max(0, this.audioConfig.volume ?? 0.8)),
+          embedElement: true
+        }
+      : undefined;
+
+    const modelEntry = { url: this.currentModelFileName || 'scene.glb' };
+
+    // optionale Animationsliste
+    let animations;
+    for (const [root, entry] of this.modelAnimationMap.entries()) {
+      if (entry?.clips?.length) {
+        animations = entry.clips.map(c => c.name || 'UnnamedClip');
+        break;
+      }
+    }
+
+    const meta = this.metaConfig || {};
+    const title = (meta.title && meta.title.trim()) || 'ARea Scene V2';
+
+    return {
+      meta: {
+        title,
+        subtitle: meta.subtitle || '',
+        body: meta.body || '',
+        posterImage: meta.posterImage || '',
+        createdAt: new Date().toISOString(),
+        animationStrategy: 'merged'
+      },
+      model: modelEntry,
+      audio,
+      clickableNodes,
+      assets,
+      animations
+    };
+  }
+
+  exportMergedGlbBlob() {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const exportableAssets = this.editableObjects.filter(o => o.userData.isEditable);
+        const tempScene = new THREE.Scene();
+        exportableAssets.forEach(asset => tempScene.add(asset.clone()));
+        const animations = this.buildMergedAnimationClip(exportableAssets);
+        this.exporter.parse(
+          tempScene,
+          glb => resolve(new Blob([glb], { type: 'application/octet-stream' })),
+          err => reject(err),
+          {
+            binary: true,
+            animations: animations.length > 0 ? animations : undefined,
+            embedImages: true,
+            onlyVisible: true,
+            includeCustomExtensions: false
+          }
+        );
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  buildMergedAnimationClip(objects) {
+    const allTracks = [];
+    objects.forEach(o => {
+      const entry = this.modelAnimationMap.get(o);
+      if (!entry) return;
+      entry.clips.forEach(c => {
+        c.tracks.forEach(t => {
+          const cloned = t.clone();
+          cloned.name = `${o.name || o.uuid}/${cloned.name}`;
+          allTracks.push(cloned);
+        });
+      });
+    });
+    if (!allTracks.length) return [];
+    const merged = new THREE.AnimationClip('merged_animation', -1, allTracks);
+    return [merged];
+  }
 }
 
 export default SceneManager;
