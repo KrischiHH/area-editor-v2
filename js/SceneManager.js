@@ -790,19 +790,22 @@ export class SceneManager {
     });
   }
 
-  buildMergedAnimationClip(objects) {
+    buildMergedAnimationClip(objects) {
     const allTracks = [];
     objects.forEach(o => {
       const entry = this.modelAnimationMap.get(o);
       if (!entry) return;
+
       entry.clips.forEach(c => {
         c.tracks.forEach(t => {
+          // WICHTIG: Tracknamen NICHT mehr umbennen,
+          // damit PropertyBinding.parseTrackName sie versteht
           const cloned = t.clone();
-          cloned.name = `${o.name || o.uuid}/${cloned.name}`;
           allTracks.push(cloned);
         });
       });
     });
+
     if (!allTracks.length) return [];
     const merged = new THREE.AnimationClip('merged_animation', -1, allTracks);
     return [merged];
