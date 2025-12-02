@@ -719,7 +719,7 @@ export class SceneManager {
           embedElement: true
         }
       : undefined;
-    const modelEntry = { url: this.currentModelFileName || 'scene.glb' };
+    const modelEntry = { url: 'scene.glb' };
     return {
       meta: {
         title: 'ARea Scene V2',
