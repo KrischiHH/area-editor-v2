@@ -133,7 +133,7 @@ export class SceneManager {
     this.editableObjects = [];
     this.selectedObjects = [];
     this.audioConfig = null;
-    this.metaConfig = {};      // für Titel/Subline/Text/Poster
+    this.metaConfig = {};      // Titel/Subline/Text/Poster
     this.modelAnimationMap = new Map();
     this._mixers = [];
     this._clock = new THREE.Clock();
