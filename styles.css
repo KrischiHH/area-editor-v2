@@ -26,7 +26,13 @@ body, html {
   height:100vh;
 }
 
-#viewport-container { position:relative; background:black; overflow:hidden; }
+/* ALT: background:black;  → NEU: angenehmes dunkles Studio-Grau */
+#viewport-container {
+  position:relative;
+  background:#151921;
+  overflow:hidden;
+}
+
 #main-canvas { display:block; width:100%; height:100%; }
 
 /* Sidebar */
