@@ -15,9 +15,15 @@ export class SceneManager {
     this.canvas = canvas;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0d1117);
+    // angenehmes Studio-Grau statt fast Schwarz
+    this.scene.background = new THREE.Color(0x151921);
 
-    this.camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+    this.camera = new THREE.PerspectiveCamera(
+      60,
+      canvas.clientWidth / canvas.clientHeight,
+      0.1,
+      1000
+    );
     this.camera.position.set(0, 1.6, 6);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -25,7 +31,8 @@ export class SceneManager {
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.6;
+    // Basis-Exposure deutlich niedriger
+    this.renderer.toneMappingExposure = 1.1;
     this.renderer.shadowMap.enabled = false;
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -48,7 +55,10 @@ export class SceneManager {
     this.controls.target.set(0, 1.0, 0);
     this.controls.update();
 
-    this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
+    this.transformControls = new TransformControls(
+      this.camera,
+      this.renderer.domElement
+    );
     this.transformControls.setSize(1.0);
     this.transformControls.addEventListener('dragging-changed', e => {
       this.controls.enabled = !e.value;
@@ -66,17 +76,28 @@ export class SceneManager {
         if (this.pivotEditMode) {
           const end = this._captureTransform(this._pivot);
           if (!this._compareTransform(this._pivotDragStart, end)) {
-            this._pushCommand({ type: 'groupPivotChange', prev: this._pivotDragStart, next: end });
+            this._pushCommand({
+              type: 'groupPivotChange',
+              prev: this._pivotDragStart,
+              next: end
+            });
           }
           this._pivotDragStart = null;
-        } else if (this.selectedObjects.length > 0 && this._groupTransformStartStates) {
+        } else if (
+          this.selectedObjects.length > 0 &&
+          this._groupTransformStartStates
+        ) {
           const mode = this.transformControls.getMode();
           const items = this.selectedObjects.map(o => ({
             object: o,
-            prev: this._groupTransformStartStates.find(s => s.object === o)?.prev,
+            prev: this._groupTransformStartStates.find(
+              s => s.object === o
+            )?.prev,
             next: this._captureTransform(o)
           }));
-            const changed = items.some(i => !this._compareTransform(i.prev, i.next));
+          const changed = items.some(
+            i => !this._compareTransform(i.prev, i.next)
+          );
           if (changed) {
             this._pushCommand({ type: 'groupTransform', mode, items });
             this.onTransformChange?.();
@@ -87,16 +108,20 @@ export class SceneManager {
       }
     });
     this.transformControls.addEventListener('change', () => {
-      if (this.transformControls.dragging && this.selectedObjects.length > 1 && !this.pivotEditMode) {
+      if (
+        this.transformControls.dragging &&
+        this.selectedObjects.length > 1 &&
+        !this.pivotEditMode
+      ) {
         this._applyPivotLiveTransform();
       }
     });
     this.scene.add(this.transformControls);
 
-    // Raycaster für Klick-Selektion (bereits eingebaut in vorherigem Patch)
+    // Raycaster für Klick-Selektion
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
-    this.renderer.domElement.addEventListener('pointerdown', (e) => {
+    this.renderer.domElement.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
       if (this.transformControls?.dragging) return;
       const rect = this.renderer.domElement.getBoundingClientRect();
@@ -116,7 +141,8 @@ export class SceneManager {
       }
     });
 
-    this.currentLightProfile = 'aero-simple';
+    // Studio-Lighting als Default
+    this.currentLightProfile = 'studio';
     this._lights = [];
     this._applyLightingProfile(this.currentLightProfile);
 
@@ -150,13 +176,19 @@ export class SceneManager {
 
     this.loader = new GLTFLoader();
     const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
+    dracoLoader.setDecoderPath(
+      'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/'
+    );
     this.loader.setDRACOLoader(dracoLoader);
     this.exporter = new GLTFExporter();
 
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
-    this.outlinePass = new OutlinePass(new THREE.Vector2(canvas.clientWidth, canvas.clientHeight), this.scene, this.camera);
+    this.outlinePass = new OutlinePass(
+      new THREE.Vector2(canvas.clientWidth, canvas.clientHeight),
+      this.scene,
+      this.camera
+    );
     this.outlinePass.edgeStrength = 5.0;
     this.outlinePass.edgeGlow = 0.3;
     this.outlinePass.edgeThickness = 1.0;
@@ -188,11 +220,11 @@ export class SceneManager {
     window.addEventListener('resize', () => this._handleResize());
   }
 
-  setExposure(v){
+  setExposure(v) {
     this.renderer.toneMappingExposure = Math.max(0.1, Math.min(5, v));
   }
 
-  setLightIntensities({ ambient, key, fill }){
+  setLightIntensities({ ambient, key, fill }) {
     if (!this._lights || this._lights.length === 0) return;
     this._lights.forEach(l => {
       if (l.isAmbientLight && ambient !== undefined) l.intensity = ambient;
@@ -203,25 +235,29 @@ export class SceneManager {
     });
   }
 
-  enableEnvironment(flag){
-    if (flag){
+  enableEnvironment(flag) {
+    if (flag) {
       const pmrem = new PMREMGenerator(this.renderer);
       const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
       this.scene.environment = env.texture;
+      pmrem.dispose();
     } else {
       this.scene.environment = null;
     }
   }
 
-  previewBasicMode(flag){
+  previewBasicMode(flag) {
     if (flag === this._basicPreview) return;
     this._basicPreview = flag;
     this.editableObjects.forEach(root => {
       root.traverse(o => {
         if (o.isMesh) {
-          if (flag){
+          if (flag) {
             if (!o.userData._origMaterial) o.userData._origMaterial = o.material;
-            o.material = new THREE.MeshBasicMaterial({ map: o.userData._origMaterial.map, color: o.userData._origMaterial.color });
+            o.material = new THREE.MeshBasicMaterial({
+              map: o.userData._origMaterial.map,
+              color: o.userData._origMaterial.color
+            });
           } else {
             if (o.userData._origMaterial) {
               o.material = o.userData._origMaterial;
@@ -233,12 +269,12 @@ export class SceneManager {
     });
   }
 
-  autoBrightenSelected(faktor=0.3){
+  autoBrightenSelected(faktor = 0.3) {
     this.selectedObjects.forEach(obj => {
-      obj.traverse(o=>{
-        if (o.isMesh && o.material && o.material.color){
+      obj.traverse(o => {
+        if (o.isMesh && o.material && o.material.color) {
           const c = o.material.color;
-          const lum = (c.r + c.g + c.b)/3;
+          const lum = (c.r + c.g + c.b) / 3;
           const target = lum + faktor;
           const scale = target / (lum || 0.001);
           c.multiplyScalar(scale);
@@ -249,10 +285,10 @@ export class SceneManager {
     this.onSceneUpdate?.();
   }
 
-  disableVertexColorsInSelected(){
-    this.selectedObjects.forEach(obj=>{
-      obj.traverse(o=>{
-        if (o.isMesh && o.material && o.material.vertexColors){
+  disableVertexColorsInSelected() {
+    this.selectedObjects.forEach(obj => {
+      obj.traverse(o => {
+        if (o.isMesh && o.material && o.material.vertexColors) {
           o.material.vertexColors = false;
           o.material.needsUpdate = true;
         }
@@ -268,41 +304,67 @@ export class SceneManager {
 
   _applyLightingProfile(profile) {
     this._clearLights();
+
     if (profile === 'aero-simple') {
-      const ambient = new THREE.AmbientLight(0xffffff, 0.8); ambient.userData.role='ambient';
-      const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(4,6,4); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xffffff, 0.7); fill.position.set(-5,3,-2); fill.userData.role='fill';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.35);
+      ambient.userData.role = 'ambient';
+      const key = new THREE.DirectionalLight(0xffffff, 1.0);
+      key.position.set(4, 6, 4);
+      key.userData.role = 'key';
+      const fill = new THREE.DirectionalLight(0xffffff, 0.5);
+      fill.position.set(-5, 3, -2);
+      fill.userData.role = 'fill';
       [ambient, key, fill].forEach(l => this.scene.add(l));
       this._lights.push(ambient, key, fill);
+
       this.scene.environment = null;
-      this.renderer.toneMappingExposure = 1.6;
+      this.renderer.toneMappingExposure = 1.1;
     } else if (profile === 'viewer-neutral-env') {
       const pmrem = new PMREMGenerator(this.renderer);
       const env = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.02);
       this.scene.environment = env.texture;
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.9); hemi.userData.role='hemi';
-      const ambient = new THREE.AmbientLight(0xffffff, 0.45); ambient.userData.role='ambient';
+      pmrem.dispose();
+
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x3a3f48, 0.8);
+      hemi.userData.role = 'hemi';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.35);
+      ambient.userData.role = 'ambient';
       this.scene.add(hemi, ambient);
       this._lights.push(hemi, ambient);
-      this.renderer.toneMappingExposure = 1.4;
-    } else if (profile === 'bright') {
-      const ambient = new THREE.AmbientLight(0xffffff, 1.0); ambient.userData.role='ambient';
-      const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(6,9,4); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.2); fill.position.set(-6,5,-4); fill.userData.role='fill';
-      this.scene.add(ambient, key, fill);
-      this._lights.push(ambient, key, fill);
-      this.scene.environment = null;
-      this.renderer.toneMappingExposure = 1.7;
+
+      this.renderer.toneMappingExposure = 1.05;
     } else if (profile === 'studio') {
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 1.05); hemi.userData.role='hemi';
-      const key = new THREE.DirectionalLight(0xffffff, 1.55); key.position.set(5,7,4); key.userData.role='key';
-      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.85); fill.position.set(-6,4,-3); fill.userData.role='fill';
-      const ambient = new THREE.AmbientLight(0xffffff, 0.5); ambient.userData.role='ambient';
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x24303a, 0.7);
+      hemi.userData.role = 'hemi';
+      const key = new THREE.DirectionalLight(0xffffff, 0.9);
+      key.position.set(5, 7, 4);
+      key.userData.role = 'key';
+      const fill = new THREE.DirectionalLight(0xdfe7f5, 0.45);
+      fill.position.set(-6, 4, -3);
+      fill.userData.role = 'fill';
+      const ambient = new THREE.AmbientLight(0xffffff, 0.25);
+      ambient.userData.role = 'ambient';
       this.scene.add(hemi, key, fill, ambient);
       this._lights.push(hemi, key, fill, ambient);
+
       this.scene.environment = null;
-      this.renderer.toneMappingExposure = 1.5;
+      this.renderer.toneMappingExposure = 1.0;
+    } else if (profile === 'bright') {
+      const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+      ambient.userData.role = 'ambient';
+      const key = new THREE.DirectionalLight(0xffffff, 2.0);
+      key.position.set(6, 9, 4);
+      key.userData.role = 'key';
+      const fill = new THREE.DirectionalLight(0xeaf1ff, 1.2);
+      fill.position.set(-6, 5, -4);
+      fill.userData.role = 'fill';
+      this.scene.add(ambient, key, fill);
+      this._lights.push(ambient, key, fill);
+
+      this.scene.environment = null;
+      this.renderer.toneMappingExposure = 1.7;
     }
+
     this.currentLightProfile = profile;
   }
 
@@ -322,7 +384,9 @@ export class SceneManager {
     this.composer.setSize(w, h);
   }
 
-  setAudioConfig(cfg) { this.audioConfig = cfg; }
+  setAudioConfig(cfg) {
+    this.audioConfig = cfg;
+  }
 
   _captureTransform(obj) {
     if (!obj) return null;
@@ -344,12 +408,14 @@ export class SceneManager {
 
   _compareTransform(a, b) {
     if (!a || !b) return false;
-    return a.position.equals(b.position) &&
+    return (
+      a.position.equals(b.position) &&
       a.rotation.x === b.rotation.x &&
       a.rotation.y === b.rotation.y &&
       a.rotation.z === b.rotation.z &&
       a.scale.equals(b.scale) &&
-      a.name === b.name;
+      a.name === b.name
+    );
   }
 
   _pushCommand(cmd) {
@@ -362,13 +428,25 @@ export class SceneManager {
       url,
       gltf => {
         const root = gltf.scene;
-        root.traverse(o => { o.userData.isEditable = true; });
         root.traverse(o => {
-          if (o.isMesh && o.material && o.material.color && o.material.color.getHex() === 0x000000) {
-            o.material.color.setHex(0x2a313a);
-            o.material.needsUpdate = true;
+          o.userData.isEditable = true;
+        });
+
+        // Material-Korrekturen: Tiefschwarz und superhelles Weiß abmildern
+        root.traverse(o => {
+          if (o.isMesh && o.material && o.material.color) {
+            const hex = o.material.color.getHex();
+            if (hex === 0x000000) {
+              o.material.color.setHex(0x2a313a);
+              o.material.needsUpdate = true;
+            }
+            if (hex === 0xffffff) {
+              o.material.color.setHex(0xeeeeee);
+              o.material.needsUpdate = true;
+            }
           }
         });
+
         if (gltf.animations?.length) {
           this.modelAnimationMap.set(root, { clips: gltf.animations });
           const mixer = new THREE.AnimationMixer(root);
@@ -376,7 +454,8 @@ export class SceneManager {
           this._mixers.push(mixer);
         }
         root.name = nameHint || 'Modell';
-        this.currentModelFileName = nameHint || this.currentModelFileName || 'scene.glb';
+        this.currentModelFileName =
+          nameHint || this.currentModelFileName || 'scene.glb';
 
         this.scene.add(root);
         this.editableObjects.push(root);
@@ -455,7 +534,13 @@ export class SceneManager {
   }
 
   _applyPivotLiveTransform() {
-    if (!this._pivotStartState || !this._pivot || this.selectedObjects.length < 2 || this.pivotEditMode) return;
+    if (
+      !this._pivotStartState ||
+      !this._pivot ||
+      this.selectedObjects.length < 2 ||
+      this.pivotEditMode
+    )
+      return;
     const mode = this.transformControls.getMode();
     const pivotPrev = this._pivotStartState.position;
     const pivotCurrent = this._pivot.position.clone();
@@ -464,7 +549,9 @@ export class SceneManager {
     if (mode === 'translate') {
       this.selectedObjects.forEach(o => o.position.add(deltaPos));
     } else if (mode === 'rotate') {
-      const qPrev = new THREE.Quaternion().setFromEuler(this._pivotStartState.rotation);
+      const qPrev = new THREE.Quaternion().setFromEuler(
+        this._pivotStartState.rotation
+      );
       const qCurr = new THREE.Quaternion().setFromEuler(this._pivot.rotation);
       const qDelta = qPrev.clone().invert().multiply(qCurr);
       this.selectedObjects.forEach(o => {
@@ -478,7 +565,10 @@ export class SceneManager {
       const currScale = this._pivot.scale;
       const sx = currScale.x / (prevScale.x || 1);
       this.selectedObjects.forEach(o => {
-        const offset = o.position.clone().sub(pivotPrev).multiplyScalar(sx);
+        const offset = o.position
+          .clone()
+          .sub(pivotPrev)
+          .multiplyScalar(sx);
         o.position.copy(pivotPrev.clone().add(offset));
         o.scale.multiplyScalar(sx);
       });
@@ -488,7 +578,7 @@ export class SceneManager {
 
   cycleGizmoMode() {
     const mode = this.transformControls.getMode();
-    const order = ['translate','rotate','scale'];
+    const order = ['translate', 'rotate', 'scale'];
     const next = order[(order.indexOf(mode) + 1) % order.length];
     this.transformControls.setMode(next);
     return next;
@@ -514,7 +604,9 @@ export class SceneManager {
       clone.name = src.name + '_Copy';
       clone.position.x += 0.5;
       clone.position.z += 0.5;
-      clone.traverse(o => { o.userData.isEditable = true; });
+      clone.traverse(o => {
+        o.userData.isEditable = true;
+      });
       this.scene.add(clone);
       this.editableObjects.push(clone);
       return clone;
@@ -531,7 +623,9 @@ export class SceneManager {
     this._mixers = this._mixers.filter(m => {
       const root = m.getRoot?.() || m._root || m._rootObject;
       if (root && toDelete.includes(root)) {
-        try { m.stopAllAction?.(); } catch(_) {}
+        try {
+          m.stopAllAction?.();
+        } catch (_) {}
         return false;
       }
       return true;
@@ -559,7 +653,9 @@ export class SceneManager {
       if (Number.isFinite(minY)) o.position.y -= minY;
     });
     const afterStates = this.selectedObjects.map(o => this._captureTransform(o));
-    const changed = afterStates.some((aft, i) => !this._compareTransform(beforeStates[i], aft));
+    const changed = afterStates.some(
+      (aft, i) => !this._compareTransform(beforeStates[i], aft)
+    );
     if (changed) {
       this._pushCommand({
         type: 'groupTransform',
@@ -598,7 +694,12 @@ export class SceneManager {
     if (Number.isFinite(scale) && scale > 0) obj.scale.set(scale, scale, scale);
     const after = this._captureTransform(obj);
     if (!this._compareTransform(before, after)) {
-      this._pushCommand({ type: 'transform', object: obj, prev: before, next: after });
+      this._pushCommand({
+        type: 'transform',
+        object: obj,
+        prev: before,
+        next: after
+      });
       this.onTransformChange?.();
       this._fireSceneUpdate();
     }
@@ -608,14 +709,16 @@ export class SceneManager {
     if (this.undoStack.length === 0) return;
     const cmd = this.undoStack.pop();
     this.redoStack.push(cmd);
-    switch(cmd.type) {
+    switch (cmd.type) {
       case 'groupAdd':
         cmd.objects.forEach(o => {
           const idx = this.editableObjects.indexOf(o);
           if (idx >= 0) this.editableObjects.splice(idx, 1);
           this.scene.remove(o);
         });
-        this.selectedObjects = this.selectedObjects.filter(o => !cmd.objects.includes(o));
+        this.selectedObjects = this.selectedObjects.filter(
+          o => !cmd.objects.includes(o)
+        );
         this._updateSelectionVisuals();
         break;
       case 'groupDelete':
@@ -649,7 +752,7 @@ export class SceneManager {
     if (this.redoStack.length === 0) return;
     const cmd = this.redoStack.pop();
     this.undoStack.push(cmd);
-    switch(cmd.type) {
+    switch (cmd.type) {
       case 'groupAdd':
         cmd.objects.forEach(o => {
           this.scene.add(o);
@@ -664,7 +767,9 @@ export class SceneManager {
           if (idx >= 0) this.editableObjects.splice(idx, 1);
           this.scene.remove(o);
         });
-        this.selectedObjects = this.selectedObjects.filter(o => !cmd.objects.includes(o));
+        this.selectedObjects = this.selectedObjects.filter(
+          o => !cmd.objects.includes(o)
+        );
         this._updateSelectionVisuals();
         break;
       case 'transform':
@@ -685,7 +790,9 @@ export class SceneManager {
     this.onSelectionChange?.();
   }
 
-  _fireSceneUpdate() { this.onSceneUpdate?.(); }
+  _fireSceneUpdate() {
+    this.onSceneUpdate?.();
+  }
 
   getSceneConfig() {
     const assets = [];
@@ -700,18 +807,21 @@ export class SceneManager {
           z: Number(o.position.z.toFixed(3))
         }
       }));
-    const audio = (this.audioConfig && this.audioConfig.url)
-      ? {
-          url: this.audioConfig.url,
-          loop: !!this.audioConfig.loop,
-          delaySeconds: this.audioConfig.delaySeconds || 0,
-          volume: Math.min(1, Math.max(0, this.audioConfig.volume ?? 0.8)),
-          embedElement: true
-        }
-      : undefined;
+    const audio =
+      this.audioConfig && this.audioConfig.url
+        ? {
+            url: this.audioConfig.url,
+            loop: !!this.audioConfig.loop,
+            delaySeconds: this.audioConfig.delaySeconds || 0,
+            volume: Math.min(
+              1,
+              Math.max(0, this.audioConfig.volume ?? 0.8)
+            ),
+            embedElement: true
+          }
+        : undefined;
     const modelEntry = { url: this.currentModelFileName || 'scene.glb' };
 
-    // NEU: Animationsliste aus erstem Modell mit Clips (optional)
     let animations;
     for (const [root, entry] of this.modelAnimationMap.entries()) {
       if (entry?.clips?.length) {
@@ -730,20 +840,25 @@ export class SceneManager {
       audio,
       clickableNodes,
       assets,
-      animations // kann undefined sein, wenn keine Animationen vorhanden
+      animations
     };
   }
 
   exportMergedGlbBlob() {
     return new Promise(async (resolve, reject) => {
       try {
-        const exportableAssets = this.editableObjects.filter(o => o.userData.isEditable);
+        const exportableAssets = this.editableObjects.filter(
+          o => o.userData.isEditable
+        );
         const tempScene = new THREE.Scene();
         exportableAssets.forEach(asset => tempScene.add(asset.clone()));
         const animations = this.buildMergedAnimationClip(exportableAssets);
         this.exporter.parse(
           tempScene,
-          gltf => resolve(new Blob([gltf], { type: 'application/octet-stream' })),
+          gltf =>
+            resolve(
+              new Blob([gltf], { type: 'application/octet-stream' })
+            ),
           err => reject(err),
           {
             binary: true,
@@ -753,7 +868,9 @@ export class SceneManager {
             includeCustomExtensions: false
           }
         );
-      } catch(e) { reject(e); }
+      } catch (e) {
+        reject(e);
+      }
     });
   }
 
