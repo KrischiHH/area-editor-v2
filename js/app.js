@@ -13,7 +13,7 @@ import { PublishClient } from './PublishClient.js';
   const IMAGE_EXT = ['jpg','jpeg','png','webp'];
   const MODEL_EXT = ['glb','gltf','usdz','bin'];
 
-  // NEU: Meta-State für Titel/Subline/Text/Posterbild
+  // Meta-State für Titel/Subline/Text/Posterbild
   let metaState = {
     title: '',
     subtitle: '',
@@ -42,7 +42,7 @@ import { PublishClient } from './PublishClient.js';
     return mgr;
   }
 
-  // NEU: Meta-State nach SceneManager durchreichen
+  // Meta-State nach SceneManager durchreichen
   function syncMetaToScene() {
     const mgr = ensureSceneManager();
     if (!mgr || typeof mgr.setMetaConfig !== 'function') return;
@@ -50,18 +50,14 @@ import { PublishClient } from './PublishClient.js';
   }
 
   function rebuildAssetList() {
-    const ul = document.getElementById('asset-list');
-    if (!ul) return;
-    ul.innerHTML = '';
-
-    // NEU: Posterbild-Select aus Bild-Assets aktualisieren
+    // 🔹 1. Posterbild-Dropdown immer aktualisieren
     const selPoster = document.getElementById('sel-poster-image');
     if (selPoster) {
       const previous = selPoster.value;
       selPoster.innerHTML = '<option value="">— kein Posterbild —</option>';
 
       const imageNames = [];
-      for (const [name, file] of assetFiles.entries()) {
+      for (const [name] of assetFiles.entries()) {
         const ext = getFileExtension(name);
         if (IMAGE_EXT.includes(ext)) imageNames.push(name);
       }
@@ -78,14 +74,26 @@ import { PublishClient } from './PublishClient.js';
         selPoster.value = previous;
       }
 
+      // wenn vorher nichts gesetzt war: ersten Bild-Eintrag als Default nehmen
+      if (!selPoster.value && imageNames.length > 0) {
+        selPoster.value = imageNames[0];
+      }
+
       metaState.posterImage = selPoster.value || '';
       syncMetaToScene();
     }
+
+    // 🔹 2. Asset-Liste im UI aktualisieren (falls überhaupt vorhanden)
+    const ul = document.getElementById('asset-list');
+    if (!ul) return;
+
+    ul.innerHTML = '';
 
     if (assetFiles.size === 0) {
       ul.innerHTML = '<li class="empty">Noch keine Assets</li>';
       return;
     }
+
     for (const [name, file] of assetFiles.entries()) {
       const li = document.createElement('li');
       const title = document.createElement('div');
@@ -126,7 +134,7 @@ import { PublishClient } from './PublishClient.js';
           }
         }
         assetFiles.delete(name);
-        rebuildAssetList();
+        rebuildAssetList();   // aktualisiert auch Poster-Dropdown
         syncAudioToScene();
       };
 
@@ -183,7 +191,7 @@ import { PublishClient } from './PublishClient.js';
       }
     }
 
-    rebuildAssetList();
+    rebuildAssetList();   // hier werden jetzt sicher die Image-Optionen gesetzt
     syncAudioToScene();
   }
 
@@ -511,7 +519,7 @@ import { PublishClient } from './PublishClient.js';
     };
   }
 
-  // NEU: Meta-Panel verdrahten
+  // Meta-Panel verdrahten
   function wireMetaPanel() {
     const inpTitle    = document.getElementById('inp-meta-title');
     const inpSubtitle = document.getElementById('inp-meta-subtitle');
