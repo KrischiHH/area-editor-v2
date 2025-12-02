@@ -1,6 +1,6 @@
 import { PublishClient } from './PublishClient.js';
 
-// App-UI: Asset-Upload (Button + Drag&Drop), Audio-Panel und Publizieren
+// App-UI: Asset-Upload (Button + Drag&Drop), Audio-Panel, Meta-Panel und Publizieren
 // Voraussetzung: window.sceneManager ist bereits von js/main.js gesetzt.
 
 (() => {
@@ -12,6 +12,14 @@ import { PublishClient } from './PublishClient.js';
   const VIDEO_EXT = ['mp4','webm'];
   const IMAGE_EXT = ['jpg','jpeg','png','webp'];
   const MODEL_EXT = ['glb','gltf','usdz','bin'];
+
+  // NEU: Meta-State für Titel/Subline/Text/Posterbild
+  let metaState = {
+    title: '',
+    subtitle: '',
+    body: '',
+    posterImage: ''
+  };
 
   function getFileExtension(filename) {
     return (filename || '').split('.').pop().toLowerCase();
@@ -25,10 +33,55 @@ import { PublishClient } from './PublishClient.js';
     return v.toFixed(v < 10 ? 2 : 1) + ' ' + units[i];
   }
 
+  function ensureSceneManager() {
+    const mgr = window.sceneManager;
+    if (!mgr) {
+      console.error('sceneManager fehlt. Stelle sicher, dass js/main.js vor js/app.js geladen wird.');
+      return null;
+    }
+    return mgr;
+  }
+
+  // NEU: Meta-State nach SceneManager durchreichen
+  function syncMetaToScene() {
+    const mgr = ensureSceneManager();
+    if (!mgr || typeof mgr.setMetaConfig !== 'function') return;
+    mgr.setMetaConfig({ ...metaState });
+  }
+
   function rebuildAssetList() {
     const ul = document.getElementById('asset-list');
     if (!ul) return;
     ul.innerHTML = '';
+
+    // NEU: Posterbild-Select aus Bild-Assets aktualisieren
+    const selPoster = document.getElementById('sel-poster-image');
+    if (selPoster) {
+      const previous = selPoster.value;
+      selPoster.innerHTML = '<option value="">— kein Posterbild —</option>';
+
+      const imageNames = [];
+      for (const [name, file] of assetFiles.entries()) {
+        const ext = getFileExtension(name);
+        if (IMAGE_EXT.includes(ext)) imageNames.push(name);
+      }
+
+      imageNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        selPoster.appendChild(opt);
+      });
+
+      // bisherigen Wert beibehalten, falls noch vorhanden
+      if (previous && imageNames.includes(previous)) {
+        selPoster.value = previous;
+      }
+
+      metaState.posterImage = selPoster.value || '';
+      syncMetaToScene();
+    }
+
     if (assetFiles.size === 0) {
       ul.innerHTML = '<li class="empty">Noch keine Assets</li>';
       return;
@@ -84,15 +137,6 @@ import { PublishClient } from './PublishClient.js';
       li.appendChild(actions);
       ul.appendChild(li);
     }
-  }
-
-  function ensureSceneManager() {
-    const mgr = window.sceneManager;
-    if (!mgr) {
-      console.error('sceneManager fehlt. Stelle sicher, dass js/main.js vor js/app.js geladen wird.');
-      return null;
-    }
-    return mgr;
   }
 
   function handleFiles(fileList) {
@@ -276,7 +320,7 @@ import { PublishClient } from './PublishClient.js';
       btn.disabled = true;
       showText('Bereite Upload vor…');
 
-            try {
+      try {
         const sceneConfig = mgr.getSceneConfig();
         if (!sceneConfig?.model?.url) {
           console.warn('getSceneConfig(): model.url fehlt – bitte prüfen.');
@@ -291,7 +335,7 @@ import { PublishClient } from './PublishClient.js';
         // Alle im Asset-Panel hinterlegten Dateien (Originale)
         let assets = Array.from(assetFiles.values());
 
-        // 🔹 WICHTIG: gemergtes GLB mit Animationen exportieren und als scene.glb anhängen
+        // gemergtes GLB mit Animationen exportieren und als scene.glb anhängen
         try {
           const mergedBlob = await mgr.exportMergedGlbBlob();
           if (mergedBlob) {
@@ -300,7 +344,6 @@ import { PublishClient } from './PublishClient.js';
               'scene.glb',
               { type: 'model/gltf-binary' }
             );
-            // scene.glb als erstes Asset, damit der Worker daraus sein Alias baut
             assets = [mergedFile, ...assets];
           } else {
             console.warn('exportMergedGlbBlob() lieferte kein Ergebnis – es wird nur das Original-GLB hochgeladen.');
@@ -312,7 +355,6 @@ import { PublishClient } from './PublishClient.js';
         const client = new PublishClient(publishUrl, viewerBase, workerOrigin);
         showText('Lade Szene hoch…');
         const res = await client.publish(sceneId, sceneConfig, assets);
-
 
         const link = document.createElement('a');
         link.href = res.viewerUrl;
@@ -469,10 +511,47 @@ import { PublishClient } from './PublishClient.js';
     };
   }
 
+  // NEU: Meta-Panel verdrahten
+  function wireMetaPanel() {
+    const inpTitle    = document.getElementById('inp-meta-title');
+    const inpSubtitle = document.getElementById('inp-meta-subtitle');
+    const inpBody     = document.getElementById('inp-meta-body');
+    const selPoster   = document.getElementById('sel-poster-image');
+
+    if (inpTitle) {
+      inpTitle.addEventListener('input', () => {
+        metaState.title = inpTitle.value;
+        syncMetaToScene();
+      });
+    }
+    if (inpSubtitle) {
+      inpSubtitle.addEventListener('input', () => {
+        metaState.subtitle = inpSubtitle.value;
+        syncMetaToScene();
+      });
+    }
+    if (inpBody) {
+      inpBody.addEventListener('input', () => {
+        metaState.body = inpBody.value;
+        syncMetaToScene();
+      });
+    }
+    if (selPoster) {
+      selPoster.addEventListener('change', () => {
+        metaState.posterImage = selPoster.value || '';
+        syncMetaToScene();
+      });
+    }
+
+    // Grundzustand einmal ins SceneManager schieben
+    syncMetaToScene();
+  }
+
   function init() {
     wireAssetButtons();
     wireAudioPanel();
     wireObjectList();
+    wireMetaPanel();
     wirePublish();
   }
 
