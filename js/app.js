@@ -8,10 +8,10 @@ import { PublishClient } from './PublishClient.js';
   const assetFiles = new Map();     // name -> File
   const assetBlobUrls = new Map();  // name -> objectURL
 
-  const AUDIO_EXT = ['mp3','ogg','m4a'];
-  const VIDEO_EXT = ['mp4','webm'];
-  const IMAGE_EXT = ['jpg','jpeg','png','webp'];
-  const MODEL_EXT = ['glb','gltf','usdz','bin'];
+  const AUDIO_EXT = ['mp3', 'ogg', 'm4a'];
+  const VIDEO_EXT = ['mp4', 'webm'];
+  const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp'];
+  const MODEL_EXT = ['glb', 'gltf', 'usdz', 'bin'];
 
   // Meta-State für Titel/Subline/Text/Posterbild
   let metaState = {
@@ -27,7 +27,7 @@ import { PublishClient } from './PublishClient.js';
 
   function formatBytes(bytes) {
     if (!Number.isFinite(bytes)) return '';
-    const units = ['B','KB','MB','GB'];
+    const units = ['B', 'KB', 'MB', 'GB'];
     let i = 0; let v = bytes;
     while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
     return v.toFixed(v < 10 ? 2 : 1) + ' ' + units[i];
@@ -216,7 +216,7 @@ import { PublishClient } from './PublishClient.js';
   }
 
   function wireAudioPanel() {
-    ['sel-audio-file','chk-audio-loop','inp-audio-delay','inp-audio-vol']
+    ['sel-audio-file', 'chk-audio-loop', 'inp-audio-delay', 'inp-audio-vol']
       .map(id => document.getElementById(id))
       .forEach(el => el && el.addEventListener('input', syncAudioToScene));
     syncAudioToScene();
@@ -282,9 +282,9 @@ import { PublishClient } from './PublishClient.js';
   // Endpunkte: feste Defaults, optional per URL überschreibbar
   function getEndpoints() {
     const params = new URLSearchParams(location.search);
-    const publishUrl   = params.get('publish')
+    const publishUrl = params.get('publish')
       || 'https://area-publish-proxy.area-webar.workers.dev/publish';
-    const viewerBase   = params.get('viewer')
+    const viewerBase = params.get('viewer')
       || 'https://krischihh.github.io/area-viewer-v2/viewer.html';
     const workerOrigin = params.get('base')
       || 'https://area-publish-proxy.area-webar.workers.dev';
@@ -316,6 +316,7 @@ import { PublishClient } from './PublishClient.js';
         return;
       }
 
+      // Mindestens ein Modell-Asset im Asset-Panel hinterlegt?
       const hasModel = [...assetFiles.keys()].some(n => {
         const ext = getFileExtension(n);
         return ext === 'glb' || ext === 'gltf';
@@ -330,20 +331,33 @@ import { PublishClient } from './PublishClient.js';
 
       try {
         const sceneConfig = mgr.getSceneConfig();
-        if (!sceneConfig?.model?.url) {
-          console.warn('getSceneConfig(): model.url fehlt – bitte prüfen.');
-        }
 
-        const title = (sceneConfig.meta?.title || 'scene')
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g,'-')
-          .replace(/^-+|-+$/g,'') || 'scene';
-        const sceneId = `${title}-${Date.now()}`;
+        // 🔒 Guard 1: model.url muss überhaupt vorhanden sein
+        const modelFile = sceneConfig?.model?.url || '';
+        if (!modelFile) {
+          show('Fehler: Die Szene enthält kein gültiges <code>model.url</code>. Bitte ein GLB/GLTF laden und erneut versuchen.');
+          console.warn('getSceneConfig() ohne model.url:', sceneConfig);
+          return;
+        }
 
         // Alle im Asset-Panel hinterlegten Dateien (Originale)
         let assets = Array.from(assetFiles.values());
 
-        // gemergtes GLB mit Animationen exportieren und als scene.glb anhängen
+        // 🔒 Guard 2: Es muss im Upload-Set eine Datei geben, die exakt diesem Namen entspricht
+        if (!assets.some(f => f.name === modelFile)) {
+          show(`Fehler: Das Hauptmodell "<code>${modelFile}</code>" wurde nicht im Asset-Panel gefunden. Bitte prüfen, ob der Dateiname exakt übereinstimmt.`);
+          console.warn('Assets:', assets.map(a => a.name), 'model.url laut Config:', modelFile);
+          return;
+        }
+
+        // Szene-ID erzeugen (slug + timestamp)
+        const titleSlug = (sceneConfig.meta?.title || 'scene')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '') || 'scene';
+        const sceneId = `${titleSlug}-${Date.now()}`;
+
+        // Optional: gemergtes GLB mit Animationen exportieren und zusätzlich als scene.glb anhängen
         try {
           const mergedBlob = await mgr.exportMergedGlbBlob();
           if (mergedBlob) {
@@ -352,6 +366,7 @@ import { PublishClient } from './PublishClient.js';
               'scene.glb',
               { type: 'model/gltf-binary' }
             );
+            // gemergtes GLB vorn einsortieren, Originale bleiben erhalten
             assets = [mergedFile, ...assets];
           } else {
             console.warn('exportMergedGlbBlob() lieferte kein Ergebnis – es wird nur das Original-GLB hochgeladen.');
@@ -364,13 +379,15 @@ import { PublishClient } from './PublishClient.js';
         showText('Lade Szene hoch…');
         const res = await client.publish(sceneId, sceneConfig, assets);
 
+        // Erfolgsausgabe + Viewer-Link
+        status.innerHTML = 'Erfolg: ';
         const link = document.createElement('a');
         link.href = res.viewerUrl;
         link.textContent = 'Viewer öffnen';
         link.target = '_blank';
         link.rel = 'noopener';
-        status.innerHTML = 'Erfolg: ';
         status.appendChild(link);
+
         if (res.shareUrl) {
           const br = document.createElement('br');
           status.appendChild(br);
@@ -381,6 +398,15 @@ import { PublishClient } from './PublishClient.js';
           share.rel = 'noopener';
           status.appendChild(share);
         }
+
+        // Debug-Hinweis mit direkter scene.json-URL
+        const info = document.createElement('div');
+        info.style.marginTop = '6px';
+        info.style.fontSize = '12px';
+        info.style.opacity = '0.8';
+        info.textContent = `Config: ${workerOrigin}/scenes/${sceneId}/scene.json`;
+        status.appendChild(info);
+
       } catch (e) {
         status.innerHTML = '';
         const div = document.createElement('div');
