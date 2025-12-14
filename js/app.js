@@ -285,7 +285,7 @@ import { PublishClient } from './PublishClient.js';
     const publishUrl = params.get('publish')
       || 'https://area-publish-proxy.area-webar.workers.dev/publish';
     const viewerBase = params.get('viewer')
-      || 'https://krischihh.github.io/area-viewer-v2/viewer.html';
+      || 'https://krischihh.github.io/area-viewer-v3/webxr.html';
     const workerOrigin = params.get('base')
       || 'https://area-publish-proxy.area-webar.workers.dev';
     return { publishUrl, viewerBase, workerOrigin };
